@@ -22,7 +22,7 @@
 #include "hardware/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
-#include "pins.h"  // ring1, ring2
+#include "pins.h"  // RING1, RING2
 #include "RP2040Audio.h"
 
 // C++, why you can't just read the header file jeez ...
@@ -55,8 +55,8 @@ void RP2040Audio::init() {
   // Set up PWM slices
 
   // pwmSlice converts samples to PWM audio on gpio pins
-  pwmSlice[0] = pwm_gpio_to_slice_num(ring1);
-  pwmSlice[1] = pwm_gpio_to_slice_num(ring2);
+  pwmSlice[0] = pwm_gpio_to_slice_num(RING1);
+  pwmSlice[1] = pwm_gpio_to_slice_num(RING2);
 
   // triggerSlice generates an interrupt in sync with that one,
   // but is scaled to only once per TRANSFER_BUFF_SAMPLES samples.
