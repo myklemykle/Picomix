@@ -48,6 +48,7 @@ class RP2040Audio {
 public:
   static short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
   static short sampleBuffer[SAMPLE_BUFF_SAMPLES];
+	static volatile uint32_t iVolumeLevel; // 0-1024, or higher for clipping
 
   RP2040Audio();
   static void __not_in_flash_func(ISR_play)();
@@ -75,7 +76,6 @@ private:
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 };
-
 
 
 #endif  // __RP2040AUDIO_H

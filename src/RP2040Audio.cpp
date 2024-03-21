@@ -46,6 +46,9 @@ void setup_interp1_clamp(){
 
 // This gets called once at startup to set up both stereo PWMs for both ports
 void RP2040Audio::init() {
+
+	iVolumeLevel = 0;
+
 	/////////////////////////
 	// set up interp1 for clamping (used by ISR)
 	//
@@ -54,7 +57,8 @@ void RP2040Audio::init() {
   ////////////////////////////
   // Set up PWM slices
 
-  // pwmSlice converts samples to PWM audio on gpio pins
+  // pwmSlice converts samples to PWM audio on gpio pins 
+	///// TODO: pass args for this
   pwmSlice[0] = pwm_gpio_to_slice_num(RING1);
   pwmSlice[1] = pwm_gpio_to_slice_num(RING2);
 
@@ -243,8 +247,6 @@ RP2040Audio::RP2040Audio() {
   wavCtrlCh[0] = wavCtrlCh[1] = -1;
   pwmSlice[0] = pwmSlice[1] = 0;
 }
-
-extern volatile uint32_t iVolumeLevel;
 
 // init() sets up an interrupt every TRANSFER_WINDOW_XFERS output samples,
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
