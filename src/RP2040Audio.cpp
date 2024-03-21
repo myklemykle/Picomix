@@ -22,7 +22,6 @@
 #include "hardware/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
-#include "pins.h"  // RING1, RING2
 #include "RP2040Audio.h"
 
 // C++, why you can't just read the header file jeez ...
@@ -45,9 +44,9 @@ void setup_interp1_clamp(){
 }
 
 // This gets called once at startup to set up both stereo PWMs for both ports
-void RP2040Audio::init() {
+void RP2040Audio::init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice) {
 
-	iVolumeLevel = 0;
+	loopTriggerPWMSlice = loopSlice;
 
 	/////////////////////////
 	// set up interp1 for clamping (used by ISR)
@@ -59,21 +58,18 @@ void RP2040Audio::init() {
 
   // pwmSlice converts samples to PWM audio on gpio pins 
 	///// TODO: pass args for this
-  pwmSlice[0] = pwm_gpio_to_slice_num(RING1);
-  pwmSlice[1] = pwm_gpio_to_slice_num(RING2);
+  pwmSlice[0] = pwm_gpio_to_slice_num(ring1);
+  pwmSlice[1] = pwm_gpio_to_slice_num(ring2);
 
   // triggerSlice generates an interrupt in sync with that one,
   // but is scaled to only once per TRANSFER_BUFF_SAMPLES samples.
   // It triggers a refill of the transfer buffer.  It is just
   // for IRQs & isn't connected to any pins.
-  //
-  // use slice 0 here, which corresponds to gpio 0&1 or 16&17,
-  // which I happen to know I'm not using.
 
   // halt:
 	pwm_set_enabled(pwmSlice[0], false);
 	pwm_set_enabled(pwmSlice[1], false);
-  pwm_set_enabled(TRIGGER_SLICE, false);
+  pwm_set_enabled(loopTriggerPWMSlice, false);
 
 
   // initialize:
@@ -88,10 +84,9 @@ void RP2040Audio::init() {
   pwm_config tCfg = pwm_get_default_config();
   pwm_config_set_clkdiv_int_frac(&tCfg, (int)TRANSFER_WINDOW_XFERS, 0);
   pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
-  pwm_init(TRIGGER_SLICE, &tCfg, false);
-  pwm_set_irq_enabled(TRIGGER_SLICE, true);
+  pwm_init(loopTriggerPWMSlice, &tCfg, false);
+  pwm_set_irq_enabled(loopTriggerPWMSlice, true);
   irq_set_enabled(PWM_IRQ_WRAP, true);
-
 
   // line them up & adjust levels
   for (int i = 0; i < 2; i++) {
@@ -99,10 +94,10 @@ void RP2040Audio::init() {
     pwm_set_counter(pwmSlice[i], 0);
 	}
 	// give the buffer writes a head start on the DMA reads. see tweak() for explanation of the magic number 28.
-  pwm_set_counter(TRIGGER_SLICE, 28);  
+  pwm_set_counter(loopTriggerPWMSlice, 28);  
 
   // don't make them go yet. Turn on DMA first!
-  //pwm_set_mask_enabled((1<<pwmSlice) | (1<<TRIGGER_SLICE) | pwm_hw->en);
+  //pwm_set_mask_enabled((1<<pwmSlice) | (1<<loopTriggerPWMSlice) | pwm_hw->en);
 }
 
 
@@ -156,7 +151,7 @@ void RP2040Audio::pauseAll(){
 	pause(0);
 	pause(1);
 	// .. once everything is off, we can pause the trigger slice.
-	pwm_set_enabled(TRIGGER_SLICE, false);
+	pwm_set_enabled(loopTriggerPWMSlice, false);
 }
 
 
@@ -232,8 +227,8 @@ void RP2040Audio::play(unsigned char port) {
 		// Dbg_printf("dma channel %d started\n",wavCtrlCh[port]);
 
     // start the PWM to generate the DREQ signals for the DMA:
-    pwm_set_mask_enabled((1 << pwmSlice[port]) | (1 << TRIGGER_SLICE) | pwm_hw->en);
-		// Dbg_printf("pwm channels %d & %d enabled\n",pwmSlice[port],TRIGGER_SLICE);
+    pwm_set_mask_enabled((1 << pwmSlice[port]) | (1 << loopTriggerPWMSlice) | pwm_hw->en);
+		// Dbg_printf("pwm channels %d & %d enabled\n",pwmSlice[port],loopTriggerPWMSlice);
   } else {
 		// Dbg_printf("dma channel %d busy.\n",wavDataCh[port]);
 	}
@@ -253,7 +248,7 @@ RP2040Audio::RP2040Audio() {
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
 void __not_in_flash_func(RP2040Audio::ISR_play)() { 
   static unsigned int sampleBuffCursor = 0;
-  pwm_clear_irq(TRIGGER_SLICE);
+  pwm_clear_irq(loopTriggerPWMSlice);
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
 
@@ -285,7 +280,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 extern volatile uint32_t sampleCursorInc[4];
 void __not_in_flash_func(RP2040Audio::ISR_test)() {
   static long sampleBuffCursor[4] = {0,0,0,0};
-  pwm_clear_irq(TRIGGER_SLICE);
+  pwm_clear_irq(loopTriggerPWMSlice);
 
 	for (uint8_t port = 0; port<2; port++) {
 		for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS) {
@@ -373,7 +368,7 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 // wrapping around and overtaking the DMA's cursor position.  
 // Last time I checked this, 28 was a good value with no distorition.
 // 
-// That's the meaning of  pwm_set_counter(TRIGGER_SLICE, 28)  in init() above.)
+// That's the meaning of  pwm_set_counter(loopTriggerPWMSlice, 28)  in init() above.)
 //
 void RP2040Audio::tweak() {
 	char c;

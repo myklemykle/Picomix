@@ -41,19 +41,24 @@
 // looping artifact.  Longer than 2 seconds, for sure.)
 #define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000) 
 
-// Here is a spare pwm slice that we can make a timer from:
-#define TRIGGER_SLICE 0
-
 class RP2040Audio {
 public:
   static short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
   static short sampleBuffer[SAMPLE_BUFF_SAMPLES];
 	static volatile uint32_t iVolumeLevel; // 0-1024, or higher for clipping
+	// an unused pwm slice that we can make a loop timer from:
+	static unsigned char loopTriggerPWMSlice;
 
   RP2040Audio();
   static void __not_in_flash_func(ISR_play)();
   static void __not_in_flash_func(ISR_test)();
-  void init();  // allocate & configure PWM and DMA for both ports
+
+	// TODO: more general-purpose init() signatures for:
+	// -- only one stereo pair
+	// -- only one mono channel?
+	// -- without loopSlice? (for not looping samples)
+  void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
+
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
   void play(unsigned char port);   // turn on PWM & DMA
   void pause(unsigned char port);  // halt PWM & DMA
