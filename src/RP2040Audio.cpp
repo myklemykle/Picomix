@@ -24,11 +24,22 @@
 #include "hardware/interp.h"
 #include "RP2040Audio.h"
 
-// C++, why you can't just read the header file jeez ...
-extern int RP2040Audio::wavDataCh[2];
-extern int RP2040Audio::wavCtrlCh[2];
-extern unsigned int RP2040Audio::pwmSlice[2];
-extern short* RP2040Audio::bufPtr[2];
+// Defining the declared static class variables of the class, 
+// which you have to do here not there, cuz c++...
+// https://stackoverflow.com/questions/4104544/how-to-access-static-members-of-a-class
+int RP2040Audio::wavDataCh[2];
+int RP2040Audio::wavCtrlCh[2];
+unsigned int RP2040Audio::pwmSlice[2];
+short* RP2040Audio::bufPtr[2];
+// This buffer stores an audio sample
+short RP2040Audio::sampleBuffer[SAMPLE_BUFF_SAMPLES];
+// We copy chunks of audio out of the sample buffer, scaling time/volume/etc, into this small buffer;
+// then DMA copies that to the PWM output.
+short RP2040Audio::transferBuffer[2][TRANSFER_BUFF_SAMPLES];
+// Overall volume level from 0 to 1024 (or higher for clipping)
+volatile uint32_t RP2040Audio::iVolumeLevel;
+// The PWM slice we use for triggering the loops
+unsigned char RP2040Audio::loopTriggerPWMSlice;
 
 
 // Digital Limiter: 
