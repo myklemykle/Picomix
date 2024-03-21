@@ -11,7 +11,7 @@
 //
 //
 
-#include "config.h"
+#include "dbg_macros.h"
 
 // don't compile this for Teensy:
 #ifdef TARGET_RP2040
@@ -22,7 +22,7 @@
 #include "hardware/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
-#include "pins.h"
+#include "pins.h"  // ring1, ring2
 #include "RP2040Audio.h"
 
 // C++, why you can't just read the header file jeez ...
