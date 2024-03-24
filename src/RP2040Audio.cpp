@@ -40,6 +40,8 @@ short RP2040Audio::transferBuffer[2][TRANSFER_BUFF_SAMPLES];
 volatile uint32_t RP2040Audio::iVolumeLevel;
 // The PWM slice we use for triggering the loops
 unsigned char RP2040Audio::loopTriggerPWMSlice;
+// A flag we wave
+bool RP2040Audio::tweaking = false;
 
 
 // Digital Limiter: 
@@ -254,8 +256,7 @@ RP2040Audio::RP2040Audio() {
   pwmSlice[0] = pwmSlice[1] = 0;
 }
 
-// This ISR is for sending a single stereo audio stream to two different outputs
-// on two different PWM slices. 
+// This ISR sends a single stereo audio stream to two different outputs on two different PWM slices. 
 // init() sets up an interrupt every TRANSFER_WINDOW_XFERS output samples,
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
@@ -385,6 +386,8 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 // That's the meaning of  pwm_set_counter(loopTriggerPWMSlice, 28)  in init() above.)
 //
 void RP2040Audio::tweak() {
+	if (! tweaking) return;
+
 	char c;
 
 	static int position = 0;
@@ -417,6 +420,9 @@ void RP2040Audio::tweak() {
 			step = step / 2;
 			Dbg_print('*');
 			Dbg_println(step);
+		} else if (c == '!') {
+			// done tweaking!
+			tweaking = false;
 		} else {
 			Dbg_print(c);
 		}

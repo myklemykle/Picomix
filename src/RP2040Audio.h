@@ -48,6 +48,8 @@ public:
 	static volatile uint32_t iVolumeLevel; // 0-1024, or higher for clipping
 	// an unused pwm slice that we can make a loop timer from:
 	static unsigned char loopTriggerPWMSlice;
+	// is the buffer timing being tweaked at the moment?
+	static bool tweaking;
 
   RP2040Audio();
   static void __not_in_flash_func(ISR_play)();
