@@ -254,6 +254,8 @@ RP2040Audio::RP2040Audio() {
   pwmSlice[0] = pwmSlice[1] = 0;
 }
 
+// This ISR is for sending a single stereo audio stream to two different outputs
+// on two different PWM slices. 
 // init() sets up an interrupt every TRANSFER_WINDOW_XFERS output samples,
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
@@ -286,8 +288,9 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
   }
 }
 
-// Fancier version, time-scaling a 1hz sample into 4 output channels at 4 rates, but not (yet) adjusting volume.
+// This ISR time-scales a 1hz sample into 4 output channels at 4 rates, but not (yet) adjusting volume.
 // instead of FP, we will use long ints, and shift off the 8 LSB 
+// This assumes that the sample buffer contains a single complete waveform.
 extern volatile uint32_t sampleCursorInc[4];
 void __not_in_flash_func(RP2040Audio::ISR_test)() {
   static long sampleBuffCursor[4] = {0,0,0,0};

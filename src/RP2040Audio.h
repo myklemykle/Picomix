@@ -60,7 +60,8 @@ public:
   void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
 
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
-  void play(unsigned char port);   // turn on PWM & DMA
+  void play(unsigned char port);   // turn on PWM & DMA and start looping the buffer
+  // void playOnce(unsigned char port);   // turn on PWM & DMA and start playing, but pause at end instead of looping.
   void pause(unsigned char port);  // halt PWM & DMA
   void pauseAll();  // halt everything
   bool isPlaying(unsigned char port);
