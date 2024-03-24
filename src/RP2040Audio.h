@@ -13,6 +13,7 @@
                                                     // spectrum, so output filtering is more crucial.
 																										//
                                                     // TODO: PDM could improve this, if more sample resolution was needed.
+#define WAV_PWM_BITS (WAV_PWM_SCALE + 9)
 #define WAV_PWM_RANGE (1024 * WAV_PWM_SCALE)
 #define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's setting
 #define WAV_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz .  Running at 133mhz sys_clk, this comes to 129883hz .

@@ -96,13 +96,13 @@ void RP2040Audio::init(unsigned char ring1, unsigned char ring2, unsigned char l
 
   pwm_config tCfg = pwm_get_default_config();
 
+  pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
   //pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS);
 	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
   pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS * 3);
 	// instead:
 	//pwm_config_set_clkdiv(&tCfg, (float)TRANSFER_WINDOW_XFERS * (PWM_SAMPLE_RATE / BUFF_SAMPLE_RATE)); // BORKED
 
-  pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
   pwm_init(loopTriggerPWMSlice, &tCfg, false);
   pwm_set_irq_enabled(loopTriggerPWMSlice, true);
   irq_set_enabled(PWM_IRQ_WRAP, true);
@@ -391,8 +391,9 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 
 // load a raw PCM audio file, which you can create with sox:
 //       sox foo.wav foo.raw
-// assuming 16-bit samples for now, as this is a buffer of 16-bit (short) samples.
+// assuming foo.raw contains signed 16-bit samples
 void RP2040Audio::fillFromRawFile(Stream &f){
+	size_t bc; // buffer cursor
 	// loading 16-bit data 8 bits at a time ...
 	size_t length = f.readBytes((char *)sampleBuffer, SAMPLE_BUFF_BYTES);
   if (length<=0){
@@ -404,15 +405,14 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 		Dbg_println("sample truncated");
 	}
 
-	// TODO: shift this down to our actual bytesize here? or just prepare a 10-bit file?
-
 	// presuming length in bytes is even since all samples are two bytes,
 	// convert it to length in samples
 	length = length / 2;
 
-	// HACK: just blank the rest of the buffer
-	for (size_t bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
-		sampleBuffer[bc++] = 0;
+	// Now shift those (presumably) signed-16-bit samples down to our output sample width
+	for (bc = 0; bc<length; bc++) {
+		sampleBuffer[bc] = sampleBuffer[bc] / (pow(2, (16 - WAV_PWM_BITS)));
+	}
 
 	// // pad sample to a round number of tx windows
 	// int remainder = length % TRANSFER_BUFF_SAMPLES;
@@ -420,6 +420,10 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 	// 	for (;remainder <TRANSFER_BUFF_SAMPLES; remainder++)
 	// 		sampleBuffer[length++] = 0;
 	
+	// HACK: just blank the rest of the buffer, until we are respecting sample length
+	for (bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
+		sampleBuffer[bc++] = 0;
+
 	sampleLen = length;
 }
 
