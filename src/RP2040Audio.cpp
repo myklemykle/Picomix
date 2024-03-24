@@ -95,7 +95,13 @@ void RP2040Audio::init(unsigned char ring1, unsigned char ring2, unsigned char l
   }
 
   pwm_config tCfg = pwm_get_default_config();
-  pwm_config_set_clkdiv_int_frac(&tCfg, (int)TRANSFER_WINDOW_XFERS, 0);
+
+  //pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS);
+	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
+  pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS * 3);
+	// instead:
+	//pwm_config_set_clkdiv(&tCfg, (float)TRANSFER_WINDOW_XFERS * (PWM_SAMPLE_RATE / BUFF_SAMPLE_RATE)); // BORKED
+
   pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
   pwm_init(loopTriggerPWMSlice, &tCfg, false);
   pwm_set_irq_enabled(loopTriggerPWMSlice, true);
@@ -223,7 +229,16 @@ void RP2040Audio::play(unsigned char port) {
     channel_config_set_read_increment(&wavDataChConfig, true);
     channel_config_set_write_increment(&wavDataChConfig, false);
     channel_config_set_transfer_data_size(&wavDataChConfig, DMA_SIZE_32);     // 32 bytes at a time (l & r 16-bit samples)
-    channel_config_set_dreq(&wavDataChConfig, pwm_get_dreq(pwmSlice[port]));  // let PWM cycle request transfers
+																																							//
+		// Setup a DMA timer to feed these samples to PWM at an adjustable rate:
+		int timer = dma_claim_unused_timer(true /* required */); 						// TODO: claim this timer just once, in init()
+		//dma_timer_set_fraction(timer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
+		dma_timer_set_fraction(timer, 1, WAV_PWM_RANGE * 3);  // HACK! play back at 1/3 PWM rate
+		//dma_timer_set_fraction(timer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // divide system clock by num/denom (BORKED)
+		//dma_timer_set_fraction(timer, (uint16_t)(BUFF_SAMPLE_RATE / 1000.0), (uint16_t)(PWM_SAMPLE_RATE * WAV_PWM_RANGE / 1000.0) );  // divide system clock by num/denom (BORKED)
+		int treq = dma_get_timer_dreq(timer);
+    channel_config_set_dreq(&wavDataChConfig, treq);
+																																							//
     channel_config_set_chain_to(&wavDataChConfig, wavCtrlCh[port]);           // chain to the loop-control channel when finished.
     dma_channel_configure(
       wavDataCh[port],                                                  // channel to config
@@ -389,15 +404,21 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 		Dbg_println("sample truncated");
 	}
 
+	// TODO: shift this down to our actual bytesize here? or just prepare a 10-bit file?
+
 	// presuming length in bytes is even since all samples are two bytes,
 	// convert it to length in samples
 	length = length / 2;
 
-	// pad sample to a round number of tx windows
-	int remainder = length % TRANSFER_BUFF_SAMPLES;
-	if (remainder)
-		for (;remainder <TRANSFER_BUFF_SAMPLES; remainder++)
-			sampleBuffer[length++] = 0;
+	// HACK: just blank the rest of the buffer
+	for (size_t bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
+		sampleBuffer[bc++] = 0;
+
+	// // pad sample to a round number of tx windows
+	// int remainder = length % TRANSFER_BUFF_SAMPLES;
+	// if (remainder)
+	// 	for (;remainder <TRANSFER_BUFF_SAMPLES; remainder++)
+	// 		sampleBuffer[length++] = 0;
 	
 	sampleLen = length;
 }

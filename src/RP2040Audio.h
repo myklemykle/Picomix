@@ -7,7 +7,7 @@
 #endif
 
 #define WAV_PWM_SCALE 1                             // the tradeoff btwn bit depth & sample rate. 1 = 10 bit, 2 = 11 bit ... 
-                                                    // 10-bit audio has the advantage that the sample rate is up at 130khz, 
+                                                    // 10-bit audio has the advantage that the PWM output rate is up at 130khz, 
                                                     // which means that the HF noise is really getting well-suppressed. 
                                                     // With 12-bit audio, that noise is getting down into the almost-audible 
                                                     // spectrum, so output filtering is more crucial.
@@ -15,7 +15,13 @@
                                                     // TODO: PDM could improve this, if more sample resolution was needed.
 #define WAV_PWM_RANGE (1024 * WAV_PWM_SCALE)
 #define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's setting
-#define WAV_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz
+#define WAV_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz .  Running at 133mhz sys_clk, this comes to 129883hz .
+#define PWM_SAMPLE_RATE WAV_SAMPLE_RATE // not sure what WAV means in this context, really
+#define BUFF_SAMPLE_RATE 44100  				// the sample rate of the sample in our buffer.
+
+// For setting a DMA timer that feeds the PWM at the buffer sample rate:
+#define PWM_DMA_TIMER_NUM (BUFF_SAMPLE_RATE / 100)
+#define PWM_DMA_TIMER_DEM (PWM_SAMPLE_RATE / 100) * WAV_PWM_RANGE
 
 #define SAMPLES_PER_CHANNEL 2
 #define BYTES_PER_SAMPLE 2  				
@@ -26,7 +32,6 @@
 // while DMA transfers from this buffer to the PWM.
 #define TRANSFER_WINDOW_XFERS 40 // number of 32-bit (4-byte) DMA transfers in the window
 																 // NOTE: when this was 80, the resulting PWM frequency was in hearing range & faintly audible in some situations.
-																 // Now I am talking about dropping the system clock, this will need to be re-checked.
 #define TRANSFER_SAMPLES ( 4 / BYTES_PER_SAMPLE ) // == 2; 32 bits is two samples per transfer
 #define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_SAMPLES ) // size in uint_16 samples
 																																 
@@ -39,7 +44,7 @@
 // that's fine for a waveform, but for noise we need a much larger buffer.
 // (It's remarkable how long a white noise sample has to be before you can't detect some
 // looping artifact.  Longer than 2 seconds, for sure.)
-#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000) 
+#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500) 
 
 // And that's using this much memory:
 // #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
