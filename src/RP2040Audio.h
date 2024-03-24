@@ -17,17 +17,17 @@
 #define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's setting
 #define WAV_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz
 
-#define SAMPLE_BUFF_CHANNELS 1 // one hopes the compiler is smart enough to remove a 1-iteration loop
+#define SAMPLES_PER_CHANNEL 2
+#define BYTES_PER_SAMPLE 2  				
+#define SAMPLE_BUFF_CHANNELS 1 
 #define TRANSFER_BUFF_CHANNELS 2 // because the PWM subsystem wants to deal with stereo pairs, we use 2 stereo txBufs instead of 4 mono ones.
-#define AUDIO_PERIOD 1 // seconds
-#define SAMPLE_BYTES 2  // bytes
 
 // Core1 scales samples from the sample buffer into this buffer,
 // while DMA transfers from this buffer to the PWM.
 #define TRANSFER_WINDOW_XFERS 40 // number of 32-bit (4-byte) DMA transfers in the window
 																 // NOTE: when this was 80, the resulting PWM frequency was in hearing range & faintly audible in some situations.
 																 // Now I am talking about dropping the system clock, this will need to be re-checked.
-#define TRANSFER_SAMPLES ( 4 / SAMPLE_BYTES ) // == 2; 32 bits is two samples per transfer
+#define TRANSFER_SAMPLES ( 4 / BYTES_PER_SAMPLE ) // == 2; 32 bits is two samples per transfer
 #define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_SAMPLES ) // size in uint_16 samples
 																																 
 // IMPORTANT:
@@ -41,11 +41,17 @@
 // looping artifact.  Longer than 2 seconds, for sure.)
 #define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000) 
 
+// And that's using this much memory:
+// #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
+// // aka
+#define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * sizeof(short)
+#define TRANSFER_BUFF_BYTES TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE
+
 class RP2040Audio {
 public:
   static short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
   static short sampleBuffer[SAMPLE_BUFF_SAMPLES];
-	static volatile uint32_t iVolumeLevel; // 0-1024, or higher for clipping
+	static volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 	// an unused pwm slice that we can make a loop timer from:
 	static unsigned char loopTriggerPWMSlice;
 	// is the buffer timing being tweaked at the moment?
@@ -71,6 +77,7 @@ public:
 	void fillWithSine(uint count, bool positive = false);
 	void fillWithSaw(uint count, bool positive = false);
 	void fillWithSquare(uint count, bool positive = false);
+	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 	// TODO:
 	// void sleep()
@@ -83,6 +90,7 @@ private:
   static short* bufPtr[2];
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
+	size_t sampleLen;
 };
 
 

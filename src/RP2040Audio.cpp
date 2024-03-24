@@ -270,14 +270,14 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		// to hard-limit the signal.
     interp1->accum[0] = 
 											(short)( 
-													(long) (
-														sampleBuffer[sampleBuffCursor++]
-														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
-														)
-                         / WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
-                         )
+												(long) (
+													sampleBuffer[sampleBuffCursor++]
+													 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
+												)
+												/ WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
+										 	)
       ;
-		// TODO: set up interp0 to perform this add?
+		// TODO: set up interp0 to perform this add? would that even be faster?
 		short scaledSample = interp1->peek[0] + (WAV_PWM_RANGE / 2); // shift to positive
 																																 
 		// put that in both channels of both outputs:
@@ -374,7 +374,33 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 	}
 }
 
-// TODO: fillWithRamp, so we can ramp on & off for clickless pause/play
+// load a raw PCM audio file, which you can create with sox:
+//       sox foo.wav foo.raw
+// assuming 16-bit samples for now, as this is a buffer of 16-bit (short) samples.
+void RP2040Audio::fillFromRawFile(Stream &f){
+	// loading 16-bit data 8 bits at a time ...
+	size_t length = f.readBytes((char *)sampleBuffer, SAMPLE_BUFF_BYTES);
+  if (length<=0){
+		Dbg_println("read failure");
+		return;
+	}
+
+	if (length==SAMPLE_BUFF_BYTES){
+		Dbg_println("sample truncated");
+	}
+
+	// presuming length in bytes is even since all samples are two bytes,
+	// convert it to length in samples
+	length = length / 2;
+
+	// pad sample to a round number of tx windows
+	int remainder = length % TRANSFER_BUFF_SAMPLES;
+	if (remainder)
+		for (;remainder <TRANSFER_BUFF_SAMPLES; remainder++)
+			sampleBuffer[length++] = 0;
+	
+	sampleLen = length;
+}
 
 // PWM timing adjustment utility.
 // One can use this, along with a scope, to experimentally determine the appropriate 
