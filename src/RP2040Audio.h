@@ -96,7 +96,8 @@ public:
   void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
 
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
-  void play(unsigned char port);   // turn on PWM & DMA and start looping the buffer
+  void play(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
+  void play();   // turn on both channels
   // void playOnce(unsigned char port);   // turn on PWM & DMA and start playing, but pause at end instead of looping.
   void pause(unsigned char port);  // halt PWM & DMA
   void pauseAll();  // halt everything
@@ -121,6 +122,7 @@ private:
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 	size_t sampleLen;
+	volatile size_t sampleBuffCursor = 0;
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(int channel, unsigned char pin);
 	void setup_loop_pwm_slice(unsigned char loopSlice);

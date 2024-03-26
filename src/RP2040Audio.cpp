@@ -40,6 +40,7 @@ void setup_interp1_clamp(){
 void RP2040Audio::setup_dma_channels(){
   dma_channel_config wavDataChConfig, wavCtrlChConfig;
 
+
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
 	dmaTimer = dma_claim_unused_timer(true /* required */);
 	//dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
@@ -47,6 +48,8 @@ void RP2040Audio::setup_dma_channels(){
 	//dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
 
 	for (int port = 0; port < 2; port++) {
+
+		bufPtr[port] = &(transferBuffer[port][0]);
 
 		if (wavDataCh[port] < 0) {  // if uninitialized
 			Dbg_println("getting dma");
@@ -219,20 +222,47 @@ void RP2040Audio::pause(unsigned char port) {
 	}
 }
 
-// HACK presumes exactly two ports.
-// Better would be to track the number of ports there are.
 void RP2040Audio::pauseAll(){
-	pause(0);
-	pause(1);
+	// TO PAUSE ALL:
+	// abort both data & loop DMAs
+	// disable both audio PWMs and the xfer trigger PWM.
+	dma_channel_abort(wavDataCh[0]);
+	dma_channel_abort(wavCtrlCh[0]);
+	dma_channel_abort(wavDataCh[1]);
+	dma_channel_abort(wavCtrlCh[1]);
 	// .. once everything is off, we can pause the trigger slice.
-	pwm_set_enabled(loopTriggerPWMSlice, false);
+	pwm_set_mask_enabled(pwm_hw->en & ~(1 << pwmSlice[0]) & ~(1 << pwmSlice[1]) &  ~(1 << loopTriggerPWMSlice));
 	Dbg_println("all paused");
 }
 
 
+// TO FINISH
+void RP2040Audio::play() {
+  /*********************************************/
+  /* Stop playing audio if DMA already active. */
+  /*********************************************/
+  if (
+			(dma_channel_is_busy(wavDataCh[0])) ||
+			(dma_channel_is_busy(wavDataCh[1])) ||
+			(dma_channel_is_busy(wavCtrlCh[0])) ||
+			(dma_channel_is_busy(wavCtrlCh[1])) 
+		)
+		pauseAll();
+
+	// rewind cursor
+	sampleBuffCursor = 0;
+
+	/**********************/
+	/* Start WAV PWM DMA. */
+	/**********************/
+	dma_start_channel_mask(1 << wavCtrlCh[0] & 1 <<wavCtrlCh[1]);
+	Dbg_println("dma channels started");
+
+	// start the signal PWM and the xfer trigger PWM
+	pwm_set_mask_enabled((1 << pwmSlice[0]) | (1 << pwmSlice[1]) | (1 << loopTriggerPWMSlice) | pwm_hw->en);
+}
+
 void RP2040Audio::play(unsigned char port) {
-  dma_channel_config wavDataChConfig, wavCtrlChConfig;
-  bufPtr[port] = &(transferBuffer[port][0]);
 
   /*********************************************/
   /* Stop playing audio if DMA already active. */
@@ -242,7 +272,11 @@ void RP2040Audio::play(unsigned char port) {
   /****************************************************/
   /* Don't start playing audio if DMA already active. */
   /****************************************************/
-  if (!dma_channel_is_busy(wavDataCh[port])) {
+  if (!dma_channel_is_busy(wavDataCh[port])) { // should be a no-op!
+
+
+		// rewind cursor
+		sampleBuffCursor = 0;
 
     /**********************/
     /* Start WAV PWM DMA. */
@@ -250,13 +284,15 @@ void RP2040Audio::play(unsigned char port) {
     dma_start_channel_mask(1 << wavCtrlCh[port]);
 		Dbg_printf("dma channel %d started\n",wavCtrlCh[port]);
 
-    // start the signal PWM and the PWM to generate the DREQ signals for the DMA:
+    // start the signal PWM and the xfer trigger PWM
     pwm_set_mask_enabled((1 << pwmSlice[port]) | (1 << loopTriggerPWMSlice) | pwm_hw->en);
+
 		Dbg_printf("pwm channels %d & %d enabled\n",pwmSlice[port],loopTriggerPWMSlice);
   } else {
 		Dbg_printf("dma channel %d busy.\n",wavDataCh[port]);
 	}
 
+	Dbg_flush();
 }
 
 void RP2040Audio::setLooping(bool l){
@@ -283,7 +319,6 @@ RP2040Audio::RP2040Audio() {
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
 //void __not_in_flash_func(RP2040Audio::ISR_play)() { 
 void RP2040Audio::ISR_play() {
-  static unsigned int sampleBuffCursor = 0;
   pwm_clear_irq(loopTriggerPWMSlice);
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
