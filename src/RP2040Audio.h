@@ -25,9 +25,22 @@
 #define PWM_SAMPLE_RATE WAV_SAMPLE_RATE // not sure what WAV means in this context, really
 #define BUFF_SAMPLE_RATE 44100  				// the sample rate of the sample in our buffer.
 
-// For setting a DMA timer that feeds the PWM at the buffer sample rate:
-#define PWM_DMA_TIMER_NUM (BUFF_SAMPLE_RATE / 100)
-#define PWM_DMA_TIMER_DEM (PWM_SAMPLE_RATE / 100) * WAV_PWM_RANGE
+// For adjusting a DMA timer to feed the PWM at the buffer sample rate, we need to know clocks-per-sample as a ratio
+// That's 133M/44.1k , which is the same as 190000/63 (approximately 3015.873)
+// However the DMA timer scales clk_sys by a coefficient, where both the numerator and denominator be 16 bit values.
+// 42222/14 ~= 3015.857, i think that's the closest we can get with 16-bit ints.
+// (21111/7 is the same, obv)
+// I believe we'd need to change our system clock speed to get any closer to a 44.1khz sample rate.
+#define PWM_DMA_TIMER_DEM 21111
+#define PWM_DMA_TIMER_NUM 7
+
+// To match that on the loop timing PWM, we need it to loop every clocks-per-window, which is TRANSFER_WINDOW_XFERS * clocks-per-sample
+// However we can only express the numerator in 8 bits and the denoinator in 4!
+// But the PWM counter effectively multiplies the PWM clock divider in our situation.
+// Helpfully, 21111 == 227 * 93 
+#define LOOP_PWM_COUNT 93 * TRANSFER_WINDOW_XFERS
+#define LOOP_PWM_NUM 227
+#define LOOP_PWM_DEN 7
 
 #define SAMPLES_PER_CHANNEL 2
 #define BYTES_PER_SAMPLE 2  				
@@ -83,8 +96,9 @@ public:
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
   void play(unsigned char port);   // turn on PWM & DMA and start looping the buffer
   // void playOnce(unsigned char port);   // turn on PWM & DMA and start playing, but pause at end instead of looping.
-  void pause(unsigned char port);  // halt PWM & DMA
-  void pauseAll();  // halt everything
+  static void pause(unsigned char port);  // halt PWM & DMA
+  static void pauseAll();  // halt everything
+	void setLooping(bool l);
   bool isPlaying(unsigned char port);
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
@@ -104,6 +118,7 @@ private:
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 	size_t sampleLen;
+	static bool looping;
 };
 
 

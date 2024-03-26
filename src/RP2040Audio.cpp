@@ -76,12 +76,13 @@ void RP2040Audio::init(unsigned char ring1, unsigned char ring2, unsigned char l
 
   pwm_config tCfg = pwm_get_default_config();
 
-  pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
-  //pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS);
 	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
+  pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
   pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS * 3);
+
 	// instead:
-	//pwm_config_set_clkdiv(&tCfg, (float)TRANSFER_WINDOW_XFERS * (PWM_SAMPLE_RATE / BUFF_SAMPLE_RATE)); // BORKED
+  // pwm_config_set_wrap(&tCfg, LOOP_PWM_COUNT);
+	// pwm_config_set_clkdiv_int_frac(&tCfg, LOOP_PWM_NUM, LOOP_PWM_DEN);
 
   pwm_init(loopTriggerPWMSlice, &tCfg, false);
   pwm_set_irq_enabled(loopTriggerPWMSlice, true);
@@ -140,8 +141,10 @@ void RP2040Audio::pause(unsigned char port) {
     dma_channel_abort(wavDataCh[port]);
     dma_channel_abort(wavCtrlCh[port]);
     pwm_set_enabled(pwmSlice[port], false);
-  }
-	Dbg_printf("paused port %d\n",port);
+		Dbg_printf("paused port %d\n",port);
+  } else { 
+		Dbg_printf("already paused port %d\n",port);
+	}
 }
 
 // HACK presumes exactly two ports.
@@ -151,6 +154,7 @@ void RP2040Audio::pauseAll(){
 	pause(1);
 	// .. once everything is off, we can pause the trigger slice.
 	pwm_set_enabled(loopTriggerPWMSlice, false);
+	Dbg_println("all paused");
 }
 
 
@@ -158,6 +162,8 @@ void RP2040Audio::play(unsigned char port) {
   dma_channel_config wavDataChConfig, wavCtrlChConfig;
   bufPtr[port] = &(transferBuffer[port][0]);
 
+	// TODO: why do we claim some resources in ::init and other on play?
+	// We don't release them anywhere ...
   if (wavDataCh[port] < 0) {  // if uninitialized
     Dbg_println("getting dma");
     Dbg_flush();
@@ -169,10 +175,10 @@ void RP2040Audio::play(unsigned char port) {
     wavCtrlCh[port] = dma_claim_unused_channel(true);
   }
 
-  // Dbg_printf("pwm dma channel %d\n", wavDataCh[port]);
-  // Dbg_printf("loop dma channel %d\n", wavCtrlCh[port]);
-  // Dbg_printf("pwm slice num %d\n", pwmSlice[port]);
-  // Dbg_flush();
+  Dbg_printf("pwm dma channel %d\n", wavDataCh[port]);
+  Dbg_printf("loop dma channel %d\n", wavCtrlCh[port]);
+  Dbg_printf("pwm slice num %d\n", pwmSlice[port]);
+  Dbg_flush();
 
   /*********************************************/
   /* Stop playing audio if DMA already active. */
@@ -214,8 +220,7 @@ void RP2040Audio::play(unsigned char port) {
 		int timer = dma_claim_unused_timer(true /* required */); 						// TODO: claim this timer just once, in init()
 		//dma_timer_set_fraction(timer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
 		dma_timer_set_fraction(timer, 1, WAV_PWM_RANGE * 3);  // HACK! play back at 1/3 PWM rate
-		//dma_timer_set_fraction(timer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // divide system clock by num/denom (BORKED)
-		//dma_timer_set_fraction(timer, (uint16_t)(BUFF_SAMPLE_RATE / 1000.0), (uint16_t)(PWM_SAMPLE_RATE * WAV_PWM_RANGE / 1000.0) );  // divide system clock by num/denom (BORKED)
+		//dma_timer_set_fraction(timer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
 		int treq = dma_get_timer_dreq(timer);
     channel_config_set_dreq(&wavDataChConfig, treq);
 																																							//
@@ -232,17 +237,27 @@ void RP2040Audio::play(unsigned char port) {
     /* Start WAV PWM DMA. */
     /**********************/
     dma_start_channel_mask(1 << wavCtrlCh[port]);
-		// Dbg_printf("dma channel %d started\n",wavCtrlCh[port]);
+		Dbg_printf("dma channel %d started\n",wavCtrlCh[port]);
 
     // start the PWM to generate the DREQ signals for the DMA:
     pwm_set_mask_enabled((1 << pwmSlice[port]) | (1 << loopTriggerPWMSlice) | pwm_hw->en);
-		// Dbg_printf("pwm channels %d & %d enabled\n",pwmSlice[port],loopTriggerPWMSlice);
+		Dbg_printf("pwm channels %d & %d enabled\n",pwmSlice[port],loopTriggerPWMSlice);
   } else {
-		// Dbg_printf("dma channel %d busy.\n",wavDataCh[port]);
+		Dbg_printf("dma channel %d busy.\n",wavDataCh[port]);
 	}
 
 }
 
+void RP2040Audio::setLooping(bool l){
+	// Recall that for looping the buffer with DMA
+	if (l) {
+		// chain the data DMA to the looper DMA
+	} else {
+		// un-chain the data DMA from the looper DMA
+	}
+
+	looping = l;
+}
 
 // constructor/initalizer cuz c++ is weird about this
 RP2040Audio::RP2040Audio() {
@@ -280,7 +295,12 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
 
     if (sampleBuffCursor == SAMPLE_BUFF_SAMPLES)
-      sampleBuffCursor = 0;
+			if (looping) {
+				sampleBuffCursor = 0;
+			} else {
+				pauseAll();
+				break;
+			}
   }
 }
 
