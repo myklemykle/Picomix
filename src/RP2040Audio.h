@@ -92,7 +92,6 @@ public:
 	// TODO: more general-purpose init() signatures for:
 	// -- only one stereo pair
 	// -- only one mono channel?
-	// -- without loopSlice? (for not looping samples)
   void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
 
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
@@ -109,9 +108,6 @@ public:
 	void fillWithSquare(uint count, bool positive = false);
 	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
-	// TODO:
-	// void sleep()
-	// void wake()
 
 private:
   int wavDataCh[2];
@@ -128,5 +124,25 @@ private:
 	void setup_loop_pwm_slice(unsigned char loopSlice);
 };
 
+// // TODO: seperate channel objects:
+// class RP2040AudioChannel {
+// public:
+//   short transferBuffer[TRANSFER_BUFF_SAMPLES];
+//   short sampleBuffer[SAMPLE_BUFF_SAMPLES];
+// 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
+// 	//unsigned char loopTriggerPWMSlice; //share
+// 	// bool tweaking = false; // share
+// 	bool looping = true;
+//
+// private:
+//   int wavDataCh;
+//   int wavCtrlCh;
+// 	//int dmaTimer;   // both channels one sample rate for now
+//   unsigned int pwmSlice;
+//   short* bufPtr;
+//   unsigned short volumeLevel = 0; // TODO split
+// 	size_t sampleLen; // TODO split
+// 	volatile size_t sampleBuffCursor = 0;
+// };
 
 #endif  // __RP2040AUDIO_H
