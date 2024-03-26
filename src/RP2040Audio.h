@@ -79,7 +79,9 @@ public:
 	// an unused pwm slice that we can make a loop timer from:
 	unsigned char loopTriggerPWMSlice;
 	// is the buffer timing being tweaked at the moment?
-	bool tweaking;
+	bool tweaking = false;
+	// are we looping the buffer?
+	bool looping = true;
 
   RP2040Audio();
 	// NOTE: these ISRs will need binding to the single instance
@@ -96,8 +98,8 @@ public:
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
   void play(unsigned char port);   // turn on PWM & DMA and start looping the buffer
   // void playOnce(unsigned char port);   // turn on PWM & DMA and start playing, but pause at end instead of looping.
-  static void pause(unsigned char port);  // halt PWM & DMA
-  static void pauseAll();  // halt everything
+  void pause(unsigned char port);  // halt PWM & DMA
+  void pauseAll();  // halt everything
 	void setLooping(bool l);
   bool isPlaying(unsigned char port);
 	void fillWithNoise();
@@ -113,12 +115,15 @@ public:
 private:
   int wavDataCh[2];
   int wavCtrlCh[2];
+	int dmaTimer;
   unsigned int pwmSlice[2];
   short* bufPtr[2];
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 	size_t sampleLen;
-	static bool looping;
+	void setup_dma_channels();
+	void setup_audio_pwm_slice(int channel, unsigned char pin);
+	void setup_loop_pwm_slice(unsigned char loopSlice);
 };
 
 
