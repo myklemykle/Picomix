@@ -1,4 +1,9 @@
 // TODO: license
+//
+//
+// WARNING: there should only ever be one instance of this object!
+// TODO: implement a minimal singleton pattern here
+//
 #ifndef __RP2040AUDIO_H
 #define __RP2040AUDIO_H
 
@@ -55,17 +60,19 @@
 
 class RP2040Audio {
 public:
-  static short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
-  static short sampleBuffer[SAMPLE_BUFF_SAMPLES];
-	static volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
+  short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
+  short sampleBuffer[SAMPLE_BUFF_SAMPLES];
+	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 	// an unused pwm slice that we can make a loop timer from:
-	static unsigned char loopTriggerPWMSlice;
+	unsigned char loopTriggerPWMSlice;
 	// is the buffer timing being tweaked at the moment?
-	static bool tweaking;
+	bool tweaking;
 
   RP2040Audio();
-  static void __not_in_flash_func(ISR_play)();
-  static void __not_in_flash_func(ISR_test)();
+	// NOTE: these ISRs will need binding to the single instance
+	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
+  void __not_in_flash_func(ISR_play)();
+  void __not_in_flash_func(ISR_test)();
 
 	// TODO: more general-purpose init() signatures for:
 	// -- only one stereo pair
@@ -90,10 +97,10 @@ public:
 	// void wake()
 
 private:
-  static int wavDataCh[2];
-  static int wavCtrlCh[2];
-  static unsigned int pwmSlice[2];
-  static short* bufPtr[2];
+  int wavDataCh[2];
+  int wavCtrlCh[2];
+  unsigned int pwmSlice[2];
+  short* bufPtr[2];
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 	size_t sampleLen;
