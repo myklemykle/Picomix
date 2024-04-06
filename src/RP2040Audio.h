@@ -42,6 +42,9 @@
 #define LOOP_PWM_NUM 227
 #define LOOP_PWM_DEN 7
 
+// TODO: implement a double-buffering scheme with pure
+// DMA instead of this loop-timing PWM thing.
+
 #define SAMPLES_PER_CHANNEL 2
 #define BYTES_PER_SAMPLE 2  				
 #define SAMPLE_BUFF_CHANNELS 1 
