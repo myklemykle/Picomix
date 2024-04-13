@@ -329,6 +329,7 @@ void RP2040Audio::ISR_play() {
 				sampleBuffCursor = 0;
 			} else {
 				pauseAll();
+				// TODO: fill the rest of the tx buffer with silence
 				break;
 			}
   }
