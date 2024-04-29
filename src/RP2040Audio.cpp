@@ -246,8 +246,12 @@ void RP2040Audio::play() {
 	sampleBuffCursor = 0;
 
 	// rewind pwm
+	pwm_init(pwmSlice[0], &pCfg[0], false);
+	pwm_init(pwmSlice[1], &pCfg[1], false);
 	pwm_set_counter(pwmSlice[0], 0);
 	pwm_set_counter(pwmSlice[1], 0);
+
+  pwm_init(loopTriggerPWMSlice, &tCfg, false);
   pwm_set_counter(loopTriggerPWMSlice, 28);  
 	
 	/**********************/
