@@ -115,9 +115,9 @@ void RP2040Audio::setup_audio_pwm_slice(int channel, unsigned char pin){
 	pwm_set_enabled(pwmSlice[channel], false);
 
   // initialize:
-  pwm_config pCfg = pwm_get_default_config();
-	pwm_config_set_wrap(&pCfg, WAV_PWM_COUNT);
-	pwm_init(pwmSlice[channel], &pCfg, false);
+  pCfg[channel] = pwm_get_default_config();
+	pwm_config_set_wrap(&pCfg[channel], WAV_PWM_COUNT);
+	pwm_init(pwmSlice[channel], &pCfg[channel], false);
 	pwm_set_irq_enabled(pwmSlice[channel], false);
 
   // line them up & adjust levels
@@ -138,7 +138,7 @@ void RP2040Audio::setup_loop_pwm_slice(unsigned char loopSlice){
 
   // initialize:
 
-  pwm_config tCfg = pwm_get_default_config();
+  tCfg = pwm_get_default_config();
 
 	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
   pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
@@ -245,6 +245,11 @@ void RP2040Audio::play() {
 	// rewind cursor
 	sampleBuffCursor = 0;
 
+	// rewind pwm
+	pwm_set_counter(pwmSlice[0], 0);
+	pwm_set_counter(pwmSlice[1], 0);
+  pwm_set_counter(loopTriggerPWMSlice, 28);  
+	
 	/**********************/
 	/* Start WAV PWM DMA. */
 	/**********************/
@@ -266,6 +271,12 @@ void RP2040Audio::play(unsigned char port) {
 	// rewind cursor
 	sampleBuffCursor = 0;
 
+	pwm_init(pwmSlice[port], &pCfg[port], false);
+	pwm_set_counter(pwmSlice[port], 0);
+
+  pwm_init(loopTriggerPWMSlice, &tCfg, false);
+  pwm_set_counter(loopTriggerPWMSlice, 28);  
+	
 	/**********************/
 	/* Start WAV PWM DMA. */
 	/**********************/

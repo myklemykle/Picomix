@@ -74,6 +74,8 @@
 #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * sizeof(short)
 #define TRANSFER_BUFF_BYTES TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE
 
+#include "hardware/pwm.h"
+
 class RP2040Audio {
 public:
   short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
@@ -115,6 +117,7 @@ public:
 private:
   int wavDataCh[2];
   int wavCtrlCh[2];
+	pwm_config pCfg[2], tCfg;
 	int dmaTimer;
   unsigned int pwmSlice[2];
   short* bufPtr[2];
