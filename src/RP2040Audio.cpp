@@ -176,7 +176,7 @@ void RP2040Audio::init(unsigned char ring1, unsigned char ring2, unsigned char l
 }
 
 
-bool RP2040Audio::isPlaying(unsigned char port) {
+bool RP2040Audio::isStarted(unsigned char port) {
   if (dma_channel_is_busy(wavDataCh[port]))
 		return true;
 
@@ -185,7 +185,7 @@ bool RP2040Audio::isPlaying(unsigned char port) {
 	// (that's (TRANSFER_BUFF_SAMPLES/2) / WAV_SAMPLE_RATE hz) 
 	// the loop control DMA resets this DMA.
   // This DMA channel could be not_busy at that moment 
-	// even when the channel isPlaying.
+	// even when the channel isStarted.
 	//
 	// That reset window could be pretty short. 
 	// I don't know how many cycles it takes for a chain between DMAs 
@@ -211,18 +211,36 @@ bool RP2040Audio::isPlaying(unsigned char port) {
 // I guess going from 50% DC (silence) to 0% DC (logic false) & back.
 // Can we let it down more gently?
 // Maybe first set the pins to float, or input mode?
-void RP2040Audio::pause(unsigned char port) {
+void RP2040Audio::_stop(unsigned char port) {
+	// if !isStarted
   if (wavDataCh[port] >= 0 && dma_channel_is_busy(wavDataCh[port])) {
     dma_channel_abort(wavDataCh[port]);
     dma_channel_abort(wavCtrlCh[port]);
     pwm_set_enabled(pwmSlice[port], false);
-		Dbg_printf("paused port %d\n",port);
+		Dbg_printf("stopped port %d\n",port);
   } else { 
-		Dbg_printf("already paused port %d\n",port);
+		Dbg_printf("already stopped port %d\n",port);
 	}
 }
 
-void RP2040Audio::pauseAll(){
+void RP2040Audio::_pause(){
+	playing = false;
+}
+void RP2040Audio::_pause(unsigned char port){
+	// TODO: implement playing on one channel while paused on another ...
+	playing = false;
+}
+void RP2040Audio::_play(unsigned char port){
+	sampleBuffCursor = 0;
+	playing = true;
+}
+void RP2040Audio::_play(){
+	// TODO: implement playing on one channel while paused on another ...
+	sampleBuffCursor = 0;
+	playing = true;
+}
+
+void RP2040Audio::_stop(){
 	// TO PAUSE ALL:
 	// abort both data & loop DMAs
 	// disable both audio PWMs and the xfer trigger PWM.
@@ -232,15 +250,15 @@ void RP2040Audio::pauseAll(){
 	dma_channel_abort(wavCtrlCh[1]);
 	// .. once everything is off, we can pause the trigger slice.
 	pwm_set_mask_enabled(pwm_hw->en & ~(1 << pwmSlice[0]) & ~(1 << pwmSlice[1]) & ~(1 << loopTriggerPWMSlice));
-	Dbg_println("all paused");
+	Dbg_println("all stopped");
 }
 
-void RP2040Audio::play() {
+void RP2040Audio::_start() {
   /*********************************************/
   /* Stop playing audio if DMA already active. */
   /*********************************************/
-  if (isPlaying(0) || isPlaying(1))
-		pauseAll();
+  if (isStarted(0) || isStarted(1))
+		_stop();
 
 	// rewind cursor
 	sampleBuffCursor = 0;
@@ -264,13 +282,13 @@ void RP2040Audio::play() {
 	pwm_set_mask_enabled((1 << pwmSlice[0]) | (1 << pwmSlice[1]) | (1 << loopTriggerPWMSlice) | pwm_hw->en);
 }
 
-void RP2040Audio::play(unsigned char port) {
+void RP2040Audio::_start(unsigned char port) {
 
   /*********************************************/
   /* Stop playing audio if DMA already active. */
   /*********************************************/
-	if (isPlaying(port))
-		pause(port);
+	if (isStarted(port))
+		return;
 
 	// rewind cursor
 	sampleBuffCursor = 0;
@@ -294,13 +312,6 @@ void RP2040Audio::play(unsigned char port) {
 }
 
 void RP2040Audio::setLooping(bool l){
-	// Recall that for looping the buffer with DMA
-	if (l) {
-		// chain the data DMA to the looper DMA
-	} else {
-		// un-chain the data DMA from the looper DMA
-	}
-
 	looping = l;
 }
 
@@ -320,33 +331,36 @@ void RP2040Audio::ISR_play() {
   pwm_clear_irq(loopTriggerPWMSlice);
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
-
-    // Since amplitude can go over max, use interpolator #1 in clamp mode
-		// to hard-limit the signal.
-    interp1->accum[0] = 
-											(short)( 
-												(long) (
-													sampleBuffer[sampleBuffCursor++]
-													 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
+		short scaledSample;
+		if (!playing){
+			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
+			sampleBuffCursor++;
+																				//
+		} else {
+			// Since amplitude can go over max, use interpolator #1 in clamp mode
+			// to hard-limit the signal.
+			interp1->accum[0] = 
+												(short)( 
+													(long) (
+														sampleBuffer[sampleBuffCursor++]
+														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
+													)
+													/ WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
 												)
-												/ WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
-										 	)
-      ;
-		// TODO: set up interp0 to perform this add? would that even be faster?
-		short scaledSample = interp1->peek[0] + (WAV_PWM_RANGE / 2); // shift to positive
-																																 
+				;
+			// TODO: set up interp0 to perform this add? would that even be faster?
+			scaledSample = interp1->peek[0] + (WAV_PWM_RANGE / 2); // shift to positive
+		}
+
 		// put that in both channels of both outputs:
 		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++) 
 			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
 
-    if (sampleBuffCursor == SAMPLE_BUFF_SAMPLES)
-			if (looping) {
-				sampleBuffCursor = 0;
-			} else {
-				pauseAll();
-				// TODO: fill the rest of the tx buffer with silence
-				break;
-			}
+    if (sampleBuffCursor == SAMPLE_BUFF_SAMPLES) {
+			sampleBuffCursor = 0;
+			if (!looping) 
+				playing = false;
+		}
   }
 }
 

@@ -87,6 +87,8 @@ public:
 	bool tweaking = false;
 	// are we looping the buffer?
 	bool looping = true;
+	// are we playing a sample (otherwise we are silent)
+	bool playing = false;
 
   RP2040Audio();
 	// NOTE: these ISRs will need binding to the single instance
@@ -100,13 +102,24 @@ public:
   void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
 
   // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
-  void play(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
-  void play();   // turn on both channels
-  // void playOnce(unsigned char port);   // turn on PWM & DMA and start playing, but pause at end instead of looping.
-  void pause(unsigned char port);  // halt PWM & DMA
-  void pauseAll();  // halt everything
+  // void play(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
+  // void play();   // turn on both channels
+  // void pause(unsigned char port);  // halt PWM & DMA
+  // void pauseAll();  // halt everything
+	//
+	// // I am adding these underscores so that _pause and pause don't get mixed up ...
+	//
+  void _start(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
+  void _start();   // turn on both channels
+  void _stop(unsigned char port);  // halt PWM & DMA
+  void _stop();  // halt everything
+  void _play(unsigned char port);   // begin transferring sample to the buffer
+  void _play();   // begin transferring on both channels
+	void _pause(unsigned char port);  // stop transferring
+	void _pause();  // stop transferring
+								 
 	void setLooping(bool l);
-  bool isPlaying(unsigned char port);
+  bool isStarted(unsigned char port);
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
 	void fillWithSaw(uint count, bool positive = false);
