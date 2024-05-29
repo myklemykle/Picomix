@@ -85,6 +85,8 @@ public:
 	unsigned char loopTriggerPWMSlice;
 	// is the buffer timing being tweaked at the moment?
 	bool tweaking = false;
+
+	// TODO: need to track these per-port:
 	// are we looping the buffer?
 	bool looping = true;
 	// are we playing a sample (otherwise we are silent)
@@ -96,19 +98,20 @@ public:
   void __not_in_flash_func(ISR_play)();
   void __not_in_flash_func(ISR_test)();
 
-	// TODO: more general-purpose init() signatures for:
-	// -- only one stereo pair
-	// -- only one mono channel?
+	// TODO: more general-purpose init() process:
+	// -- specify total number of ports (stereo pairs), could be 1, 2, more ...
+	// -- then init them port by port
+	// -- allocate transfer buffers by port 
+	// -- loopslice will not be a thing once double buffering is go ...
   void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
 
-  // void play(short buf[], unsigned int bufLen, unsigned char port); // turn on PWM & DMA
   // void play(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
   // void play();   // turn on both channels
   // void pause(unsigned char port);  // halt PWM & DMA
   // void pauseAll();  // halt everything
 	//
-	// // I am adding these underscores so that _pause and pause don't get mixed up ...
-	//
+	// // I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version
+	
   void _start(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
   void _start();   // turn on both channels
   void _stop(unsigned char port);  // halt PWM & DMA
@@ -133,6 +136,7 @@ private:
 	pwm_config pCfg[2], tCfg;
 	int dmaTimer;
   unsigned int pwmSlice[2];
+	// TODO: for double buffering, bufPtr[2][2]
   short* bufPtr[2];
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;

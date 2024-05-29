@@ -83,6 +83,7 @@ void RP2040Audio::setup_dma_channels(){
       (void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice[port])),  // write to pwm channel (pwm structures are 0x14 bytes wide)
       transferBuffer[port],                                                   // read from here (this value will be overwritten if we start the other loop first)
       TRANSFER_BUFF_SAMPLES / 2,                                           // transfer exactly (samples/2) times (cuz 2 samples per transfer)
+																																					 // TODO: when double-buffering, divide that by 2 again.
       false);
 
 
@@ -329,6 +330,9 @@ RP2040Audio::RP2040Audio() {
 //void __not_in_flash_func(RP2040Audio::ISR_play)() { 
 void RP2040Audio::ISR_play() {
   pwm_clear_irq(loopTriggerPWMSlice);
+	// TODO: get triggered by xferDMA instead?
+	// then check bufPtr here, and swap it, before restarting?
+	// in that case we wouldn't need the rewind DMA. 
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
 		short scaledSample;
