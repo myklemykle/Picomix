@@ -16,7 +16,7 @@
 // don't compile this for Teensy:
 #ifdef TARGET_RP2040
 
-#include <Arduino.h> // for Serial
+#include "Arduino.h" // for Serial
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
