@@ -13,10 +13,7 @@
 
 #include "dbg_macros.h"
 
-// don't compile this for Teensy:
-#ifdef TARGET_RP2040
-
-#include <Arduino.h> // for Serial
+#include "Arduino.h" // for Serial
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
@@ -413,4 +410,3 @@ void RP2040Audio::tweak() {
 }
 
 
-#endif // TARGET_RP2040
