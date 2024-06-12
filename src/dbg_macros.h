@@ -1,5 +1,7 @@
-#ifndef __DBG_MACROS_H
-#define __DBG_MACROS_H
+// we can let individual includers of this file defined SDEBUG or not, and redef for each one ...
+// if this gets more comples, revisit that  ...
+// #ifndef __DBG_MACROS_H
+// #define __DBG_MACROS_H
 
 
 #ifdef SDEBUG
@@ -25,4 +27,4 @@
 
 
 
-#endif
+//#endif
