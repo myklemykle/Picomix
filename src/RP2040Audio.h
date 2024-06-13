@@ -144,7 +144,7 @@ private:
   unsigned short volumeLevel = 0;
 	size_t sampleLen;
 	volatile uint32_t sampleBuffCursor = 0;
-#define SAMPLEBUFFCURSOR_FBITS 4 					// 1, 2, 3, 4 ...
+#define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4 ...
 #define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8
 	volatile uint16_t sampleBuffInc = SAMPLEBUFFCURSOR_SCALE;
 	void setup_dma_channels();
