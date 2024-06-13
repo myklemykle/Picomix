@@ -122,6 +122,8 @@ public:
 	void _pause();  // stop transferring
 								 
 	void setLooping(bool l);
+	void setSpeed(float speed);
+	float getSpeed();
   bool isStarted(unsigned char port);
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
@@ -141,7 +143,10 @@ private:
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 	size_t sampleLen;
-	volatile size_t sampleBuffCursor = 0;
+	volatile uint32_t sampleBuffCursor = 0;
+#define SAMPLEBUFFCURSOR_FBITS 4 					// 1, 2, 3, 4 ...
+#define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8
+	volatile uint16_t sampleBuffInc = SAMPLEBUFFCURSOR_SCALE;
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(int channel, unsigned char pin);
 	void setup_loop_pwm_slice(unsigned char loopSlice);

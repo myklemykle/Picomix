@@ -313,6 +313,18 @@ void RP2040Audio::setLooping(bool l){
 	looping = l;
 }
 
+// works, but see comment:
+void RP2040Audio::setSpeed(float speed){
+	sampleBuffInc = int(speed * SAMPLEBUFFCURSOR_SCALE);
+  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc); // reports bullshit WTF?
+}
+
+float RP2040Audio::getSpeed(){
+	float speed = static_cast< float >(sampleBuffInc) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE);
+  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc); // reports bullshit WTF?
+	return speed;
+}
+
 // constructor/initalizer cuz c++ is weird about initializing arrays ...
 RP2040Audio::RP2040Audio() {
   wavDataCh[0] = wavDataCh[1] = -1;
@@ -335,15 +347,13 @@ void RP2040Audio::ISR_play() {
 		short scaledSample;
 		if (!playing){
 			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
-			sampleBuffCursor++;
-																				//
 		} else {
 			// Since amplitude can go over max, use interpolator #1 in clamp mode
 			// to hard-limit the signal.
 			interp1->accum[0] = 
 												(short)( 
 													(long) (
-														sampleBuffer[sampleBuffCursor++]
+														sampleBuffer[sampleBuffCursor >> (SAMPLEBUFFCURSOR_FBITS - 1)]
 														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
@@ -357,10 +367,14 @@ void RP2040Audio::ISR_play() {
 		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++) 
 			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
 
-    if (sampleBuffCursor == SAMPLE_BUFF_SAMPLES) {
-			sampleBuffCursor = 0;
-			if (!looping) 
+				// advance cursor:
+		sampleBuffCursor += sampleBuffInc;
+    while (sampleBuffCursor >= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE) {
+			if (!looping) {
+				sampleBuffCursor = 0;
 				playing = false;
+			} else 
+				sampleBuffCursor -= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
 		}
   }
 }
@@ -385,10 +399,10 @@ void RP2040Audio::ISR_test() {
 						// + (WAV_PWM_RANGE / 2);  // not shifting! we expect a positive-weighted sample in the buffer (true arg passed to fillWithSine)
 
 				// advance cursor:
-				sampleBuffCursor[pc] += sampleCursorInc[pc];
-					while (sampleBuffCursor[pc] >= SAMPLE_BUFF_SAMPLES *256)
-						sampleBuffCursor[pc] -= SAMPLE_BUFF_SAMPLES *256;
-			}
+        sampleBuffCursor[pc] += sampleCursorInc[pc];
+          while (sampleBuffCursor[pc] >= SAMPLE_BUFF_SAMPLES *256)
+            sampleBuffCursor[pc] -= SAMPLE_BUFF_SAMPLES *256;
+      }
 		}
 	}
 
