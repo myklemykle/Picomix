@@ -313,15 +313,15 @@ void RP2040Audio::setLooping(bool l){
 	looping = l;
 }
 
-// works, but see comment:
 void RP2040Audio::setSpeed(float speed){
+	// TODO: guard against zero?
 	sampleBuffInc = int(speed * SAMPLEBUFFCURSOR_SCALE);
-  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc); // reports bullshit WTF?
+  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc);
 }
 
 float RP2040Audio::getSpeed(){
 	float speed = static_cast< float >(sampleBuffInc) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE);
-  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc); // reports bullshit WTF?
+  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc);
 	return speed;
 }
 
