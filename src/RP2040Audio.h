@@ -142,11 +142,13 @@ private:
   short* bufPtr[2];
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
-	size_t sampleLen;
-	volatile uint32_t sampleBuffCursor = 0;
-#define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4 ...
-#define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8
-	volatile uint16_t sampleBuffInc = SAMPLEBUFFCURSOR_SCALE;
+	uint32_t sampleLen, sampleStart;
+
+	// *_fr means a 32-bit fractional value, where 27 bits hold the integer and the remaining 5 bits hold 32nds of an integer
+#define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4, 5
+#define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8,16
+	volatile int32_t sampleBuffCursor_fr = 0, sampleBuffInc_fr = (1 * SAMPLEBUFFCURSOR_SCALE); // fractional value: 
+																																														 
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(int channel, unsigned char pin);
 	void setup_loop_pwm_slice(unsigned char loopSlice);

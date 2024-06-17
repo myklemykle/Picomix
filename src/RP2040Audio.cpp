@@ -223,19 +223,23 @@ void RP2040Audio::_stop(unsigned char port) {
 
 void RP2040Audio::_pause(){
 	playing = false;
+	// Dbg_println("paused");
 }
 void RP2040Audio::_pause(unsigned char port){
-	// TODO: implement playing on one channel while paused on another ...
-	playing = false;
+	// TODO: implement port
+	return _pause();
 }
-void RP2040Audio::_play(unsigned char port){
-	sampleBuffCursor = 0;
-	playing = true;
-}
+
 void RP2040Audio::_play(){
-	// TODO: implement playing on one channel while paused on another ...
-	sampleBuffCursor = 0;
+	long c = (sampleBuffInc_fr > 0) ? sampleStart : (sampleStart + sampleLen);
+	sampleBuffCursor_fr = c * SAMPLEBUFFCURSOR_SCALE;
 	playing = true;
+	// Dbg_println("playing");
+}
+
+void RP2040Audio::_play(unsigned char port){
+	// TODO: implement port
+	return _play();
 }
 
 void RP2040Audio::_stop(){
@@ -259,7 +263,7 @@ void RP2040Audio::_start() {
 		_stop();
 
 	// rewind cursor
-	sampleBuffCursor = 0;
+	sampleBuffCursor_fr = sampleStart;
 
 	// rewind pwm
 	pwm_init(pwmSlice[0], &pCfg[0], false);
@@ -289,7 +293,7 @@ void RP2040Audio::_start(unsigned char port) {
 		return;
 
 	// rewind cursor
-	sampleBuffCursor = 0;
+	sampleBuffCursor_fr = sampleStart;
 
 	pwm_init(pwmSlice[port], &pCfg[port], false);
 	pwm_set_counter(pwmSlice[port], 0);
@@ -314,14 +318,16 @@ void RP2040Audio::setLooping(bool l){
 }
 
 void RP2040Audio::setSpeed(float speed){
-	// TODO: guard against zero?
-	sampleBuffInc = int(speed * SAMPLEBUFFCURSOR_SCALE);
-  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc);
+	if (speed == 0) // no. do not do this.
+		return; 
+
+	sampleBuffInc_fr = int(speed * SAMPLEBUFFCURSOR_SCALE);
+  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
 }
 
 float RP2040Audio::getSpeed(){
-	float speed = static_cast< float >(sampleBuffInc) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE);
-  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc);
+	float speed = static_cast< float >(sampleBuffInc_fr) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE);
+  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
 	return speed;
 }
 
@@ -342,18 +348,31 @@ void RP2040Audio::ISR_play() {
 	// TODO: get triggered by xferDMA instead?
 	// then check bufPtr here, and swap it, before restarting?
 	// in that case we wouldn't need the rewind DMA. 
+	//
+	// unloop some math that won't change:
+	int32_t sampleEndScaled = (sampleStart + sampleLen) * SAMPLEBUFFCURSOR_SCALE;
+	int32_t sampleStartScaled = sampleStart * SAMPLEBUFFCURSOR_SCALE;
+	short scaledSample;
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
-		short scaledSample;
+		// sanity check:
+		if (sampleBuffCursor_fr < 0)
+			Dbg_println("!preD");
+
+		// get next sample:
 		if (!playing){
 			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
 		} else {
+			// TODO: if we've reached the end of the sample in the buffer, insert silence in the rest of the txbuf
+			
 			// Since amplitude can go over max, use interpolator #1 in clamp mode
 			// to hard-limit the signal.
 			interp1->accum[0] = 
 												(short)( 
 													(long) (
-														sampleBuffer[sampleBuffCursor >> (SAMPLEBUFFCURSOR_FBITS - 1)]
+														//sampleBuffer[sampleBuffCursor_fr >> (SAMPLEBUFFCURSOR_FBITS - 1)]
+														// bit shifting is poorly defined for signed integers ...
+														sampleBuffer[sampleBuffCursor_fr / SAMPLEBUFFCURSOR_SCALE]
 														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
@@ -363,19 +382,35 @@ void RP2040Audio::ISR_play() {
 			scaledSample = interp1->peek[0] + (WAV_PWM_RANGE / 2); // shift to positive
 		}
 
-		// put that in both channels of both outputs:
+		// put that sample in both channels of both outputs:
 		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++) 
 			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
 
-				// advance cursor:
-		sampleBuffCursor += sampleBuffInc;
-    while (sampleBuffCursor >= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE) {
-			if (!looping) {
-				sampleBuffCursor = 0;
-				playing = false;
-			} else 
-				sampleBuffCursor -= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
-		}
+				// advance cursor 
+				// remember this is a scaled cursor, the bottom 5 bits are 16ths of a sample
+				// also, sampleBuffInc_fr may be negative
+		sampleBuffCursor_fr += sampleBuffInc_fr; 
+
+    //while (sampleBuffCursor_fr >= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE) {
+    //while (sampleBuffCursor_fr >= (sampleStart + sampleLen) * SAMPLEBUFFCURSOR_SCALE) {
+		if (sampleBuffInc_fr > 0) 
+			while (sampleBuffCursor_fr >= sampleEndScaled){
+				if (!looping) {
+					sampleBuffCursor_fr = sampleStartScaled;
+					playing = false;
+					//Dbg_println("played.");
+				} else 
+					sampleBuffCursor_fr -= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
+			}
+		if (sampleBuffInc_fr < 0) 
+			while (sampleBuffCursor_fr <= sampleStartScaled){
+				if (!looping) {
+					sampleBuffCursor_fr = sampleEndScaled;
+					playing = false;
+					//Dbg_println(".deyalp");
+				} else 
+					sampleBuffCursor_fr += SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
+			}
   }
 }
 
@@ -469,9 +504,9 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 //       sox foo.wav foo.raw
 // assuming foo.raw contains signed 16-bit samples
 void RP2040Audio::fillFromRawFile(Stream &f){
-	size_t bc; // buffer cursor
+	uint32_t bc; // buffer cursor
 	// loading 16-bit data 8 bits at a time ...
-	size_t length = f.readBytes((char *)sampleBuffer, SAMPLE_BUFF_BYTES);
+	uint32_t length = f.readBytes((char *)sampleBuffer, SAMPLE_BUFF_BYTES);
   if (length<=0){
 		Dbg_println("read failure");
 		return;
@@ -486,7 +521,8 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 	length = length / 2;
 
 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
-	for (bc = 0; bc<length; bc++) {
+	sampleStart = 0;
+	for (bc = sampleStart; bc<length; bc++) {
 		sampleBuffer[bc] = sampleBuffer[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
 
