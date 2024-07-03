@@ -66,7 +66,8 @@
 // that's fine for a waveform, but for noise we need a much larger buffer.
 // (It's remarkable how long a white noise sample has to be before you can't detect some
 // looping artifact.  Longer than 2 seconds, for sure.)
-#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500) 
+//#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500) 
+#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000) 
 
 // And that's using this much memory:
 // #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
@@ -133,8 +134,8 @@ public:
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 
 private:
-  int wavDataCh[2];
-  int wavCtrlCh[2];
+  int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet. 
+  int wavCtrlCh[2] = {-1, -1};
 	pwm_config pCfg[2], tCfg;
 	int dmaTimer;
   unsigned int pwmSlice[2];

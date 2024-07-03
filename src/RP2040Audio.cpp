@@ -322,12 +322,12 @@ void RP2040Audio::setSpeed(float speed){
 		return; 
 
 	sampleBuffInc_fr = int(speed * SAMPLEBUFFCURSOR_SCALE);
-  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
+  // Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
 }
 
 float RP2040Audio::getSpeed(){
 	float speed = static_cast< float >(sampleBuffInc_fr) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE);
-  Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
+  // Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
 	return speed;
 }
 
@@ -342,8 +342,8 @@ RP2040Audio::RP2040Audio() {
 // init() sets up an interrupt every TRANSFER_WINDOW_XFERS output samples,
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
-//void __not_in_flash_func(RP2040Audio::ISR_play)() { 
-void RP2040Audio::ISR_play() {
+void __not_in_flash_func(RP2040Audio::ISR_play)() { 
+// void RP2040Audio::ISR_play() {
   pwm_clear_irq(loopTriggerPWMSlice);
 	// TODO: get triggered by xferDMA instead?
 	// then check bufPtr here, and swap it, before restarting?
@@ -355,9 +355,9 @@ void RP2040Audio::ISR_play() {
 	short scaledSample;
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
-		// sanity check:
-		if (sampleBuffCursor_fr < 0)
-			Dbg_println("!preD");
+		// // sanity check:
+		// if (sampleBuffCursor_fr < 0)
+		// 	Dbg_println("!preD");
 
 		// get next sample:
 		if (!playing){
@@ -387,12 +387,10 @@ void RP2040Audio::ISR_play() {
 			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
 
 				// advance cursor 
-				// remember this is a scaled cursor, the bottom 5 bits are 16ths of a sample
+				// this is a scaled cursor, the bottom bits are fractions of a sample
 				// also, sampleBuffInc_fr may be negative
 		sampleBuffCursor_fr += sampleBuffInc_fr; 
 
-    //while (sampleBuffCursor_fr >= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE) {
-    //while (sampleBuffCursor_fr >= (sampleStart + sampleLen) * SAMPLEBUFFCURSOR_SCALE) {
 		if (sampleBuffInc_fr > 0) 
 			while (sampleBuffCursor_fr >= sampleEndScaled){
 				if (!looping) {
