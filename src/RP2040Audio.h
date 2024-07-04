@@ -133,6 +133,9 @@ public:
 	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 
+	uint32_t playbackLen, playbackStart; // public until we need accessors
+	uint32_t sampleLen, sampleStart;
+
 private:
   int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet. 
   int wavCtrlCh[2] = {-1, -1};
@@ -143,7 +146,6 @@ private:
   short* bufPtr[2];
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
-	uint32_t sampleLen, sampleStart;
 
 	// *_fr means a 32-bit fractional value, where 27 bits hold the integer and the remaining 5 bits hold 32nds of an integer
 #define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4, 5

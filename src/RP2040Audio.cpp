@@ -231,7 +231,13 @@ void RP2040Audio::_pause(unsigned char port){
 }
 
 void RP2040Audio::_play(){
-	long c = (sampleBuffInc_fr > 0) ? sampleStart : (sampleStart + sampleLen);
+	long c;
+	if (sampleBuffInc_fr > 0)  {
+		c = playbackStart;
+	} else {
+		c = min (playbackStart + playbackLen, sampleLen);
+	}
+
 	sampleBuffCursor_fr = c * SAMPLEBUFFCURSOR_SCALE;
 	playing = true;
 	// Dbg_println("playing");
@@ -263,7 +269,7 @@ void RP2040Audio::_start() {
 		_stop();
 
 	// rewind cursor
-	sampleBuffCursor_fr = sampleStart;
+	sampleBuffCursor_fr = playbackStart;
 
 	// rewind pwm
 	pwm_init(pwmSlice[0], &pCfg[0], false);
@@ -293,7 +299,7 @@ void RP2040Audio::_start(unsigned char port) {
 		return;
 
 	// rewind cursor
-	sampleBuffCursor_fr = sampleStart;
+	sampleBuffCursor_fr = playbackStart;
 
 	pwm_init(pwmSlice[port], &pCfg[port], false);
 	pwm_set_counter(pwmSlice[port], 0);
@@ -350,8 +356,8 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	// in that case we wouldn't need the rewind DMA. 
 	//
 	// unloop some math that won't change:
-	int32_t sampleEndScaled = (sampleStart + sampleLen) * SAMPLEBUFFCURSOR_SCALE;
-	int32_t sampleStartScaled = sampleStart * SAMPLEBUFFCURSOR_SCALE;
+	int32_t playbackEndScaled = min((playbackStart + playbackLen), sampleLen) * SAMPLEBUFFCURSOR_SCALE;
+	int32_t playbackStartScaled = playbackStart * SAMPLEBUFFCURSOR_SCALE;
 	short scaledSample;
 
   for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
@@ -392,18 +398,18 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		sampleBuffCursor_fr += sampleBuffInc_fr; 
 
 		if (sampleBuffInc_fr > 0) 
-			while (sampleBuffCursor_fr >= sampleEndScaled){
+			while (sampleBuffCursor_fr >= playbackEndScaled){
 				if (!looping) {
-					sampleBuffCursor_fr = sampleStartScaled;
+					sampleBuffCursor_fr = playbackStartScaled;
 					playing = false;
 					//Dbg_println("played.");
 				} else 
 					sampleBuffCursor_fr -= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
 			}
 		if (sampleBuffInc_fr < 0) 
-			while (sampleBuffCursor_fr <= sampleStartScaled){
+			while (sampleBuffCursor_fr <= playbackStartScaled){
 				if (!looping) {
-					sampleBuffCursor_fr = sampleEndScaled;
+					sampleBuffCursor_fr = playbackEndScaled;
 					playing = false;
 					//Dbg_println(".deyalp");
 				} else 
@@ -519,7 +525,7 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 	length = length / 2;
 
 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
-	sampleStart = 0;
+	sampleStart = playbackStart = 0;
 	for (bc = sampleStart; bc<length; bc++) {
 		sampleBuffer[bc] = sampleBuffer[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
@@ -534,7 +540,7 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 	for (bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
 		sampleBuffer[bc++] = 0;
 
-	sampleLen = length;
+	sampleLen = playbackLen = length;
 }
 
 // PWM timing adjustment utility.
