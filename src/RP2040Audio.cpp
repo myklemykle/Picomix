@@ -373,16 +373,14 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		// get next sample:
 		if (!playing){
 			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
+																				
 		} else {
-			// TODO: if we've reached the end of the sample in the buffer, insert silence in the rest of the txbuf
 			
 			// Since amplitude can go over max, use interpolator #1 in clamp mode
 			// to hard-limit the signal.
 			interp1->accum[0] = 
 												(short)( 
 													(long) (
-														//sampleBuffer[sampleBuffCursor_fr >> (SAMPLEBUFFCURSOR_FBITS - 1)]
-														// bit shifting is poorly defined for signed integers ...
 														sampleBuffer[sampleBuffCursor_fr / SAMPLEBUFFCURSOR_SCALE]
 														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
@@ -397,9 +395,10 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++) 
 			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
 
-				// advance cursor 
-				// this is a scaled cursor, the bottom bits are fractions of a sample
-				// also, sampleBuffInc_fr may be negative
+
+		// advance cursor: 
+		// this is a scaled cursor, the bottom bits are fractions of a sample
+		// also, sampleBuffInc_fr may be negative
 		sampleBuffCursor_fr += sampleBuffInc_fr; 
 
 		if (sampleBuffInc_fr > 0) 
@@ -409,7 +408,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 					playing = false;
 					//Dbg_println("played.");
 				} else 
-					sampleBuffCursor_fr -= SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
+					sampleBuffCursor_fr -= (playbackEndScaled - playbackStartScaled);
 			}
 		if (sampleBuffInc_fr < 0) 
 			while (sampleBuffCursor_fr <= playbackStartScaled){
@@ -418,7 +417,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 					playing = false;
 					//Dbg_println(".deyalp");
 				} else 
-					sampleBuffCursor_fr += SAMPLE_BUFF_SAMPLES * SAMPLEBUFFCURSOR_SCALE;
+					sampleBuffCursor_fr += (playbackEndScaled - playbackStartScaled);
 			}
   }
 }
