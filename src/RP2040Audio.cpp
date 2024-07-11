@@ -337,6 +337,11 @@ float RP2040Audio::getSpeed(){
 	return speed;
 }
 
+// expecting a value between 0 and 1, or higher for trouble ...
+void RP2040Audio::setLevel(float level){
+  iVolumeLevel = max(0, level * WAV_PWM_RANGE);
+}
+
 // constructor/initalizer cuz c++ is weird about initializing arrays ...
 RP2040Audio::RP2040Audio() {
   wavDataCh[0] = wavDataCh[1] = -1;

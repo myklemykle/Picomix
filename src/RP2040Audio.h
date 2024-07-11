@@ -125,6 +125,7 @@ public:
 	void setLooping(bool l);
 	void setSpeed(float speed);
 	float getSpeed();
+	void setLevel(float level);
   bool isStarted(unsigned char port);
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
