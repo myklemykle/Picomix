@@ -90,6 +90,9 @@ public:
 	// TODO: need to track these per-port:
 	// are we looping the buffer?
 	bool looping = true;
+	int loops = -1;
+	int loopCount = 0;
+
 	// are we playing a sample (otherwise we are silent)
 	bool playing = false;
 
@@ -123,6 +126,8 @@ public:
 	void _pause();  // stop transferring
 								 
 	void setLooping(bool l);
+	void setLoops(int l);
+	bool _doneLooping();
 	void setSpeed(float speed);
 	float getSpeed();
 	void setLevel(float level);

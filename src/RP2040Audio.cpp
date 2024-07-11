@@ -240,6 +240,7 @@ void RP2040Audio::_play(){
 
 	sampleBuffCursor_fr = c * SAMPLEBUFFCURSOR_SCALE;
 	playing = true;
+		loopCount = max(1, loops); 
 	// Dbg_println("playing");
 }
 
@@ -319,8 +320,14 @@ void RP2040Audio::_start(unsigned char port) {
 	Dbg_printf("pwm channels %d & %d enabled\n",pwmSlice[port],loopTriggerPWMSlice);
 }
 
-void RP2040Audio::setLooping(bool l){
-	looping = l;
+void RP2040Audio::setLoops(int l){
+	loops = max(-1, l);
+}
+
+inline bool RP2040Audio::_doneLooping(){
+	if (loops < 0) return false;
+	if (loopCount > 1) return false;
+	return true;
 }
 
 void RP2040Audio::setSpeed(float speed){
@@ -403,21 +410,25 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 
 		if (sampleBuffInc_fr > 0) 
 			while (sampleBuffCursor_fr >= playbackEndScaled){
-				if (!looping) {
-					sampleBuffCursor_fr = playbackStartScaled;
+				if (_doneLooping()) {
 					playing = false;
+					sampleBuffCursor_fr = playbackStartScaled;
 					//Dbg_println("played.");
-				} else 
+				} else {
 					sampleBuffCursor_fr -= (playbackEndScaled - playbackStartScaled);
+					loopCount--;
+				}
 			}
+
 		if (sampleBuffInc_fr < 0) 
 			while (sampleBuffCursor_fr <= playbackStartScaled){
-				if (!looping) {
-					sampleBuffCursor_fr = playbackEndScaled;
+				if (_doneLooping()) {
 					playing = false;
+					sampleBuffCursor_fr = playbackEndScaled;
 					//Dbg_println(".deyalp");
 				} else 
 					sampleBuffCursor_fr += (playbackEndScaled - playbackStartScaled);
+					loopCount--;
 			}
   }
 }
