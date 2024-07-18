@@ -363,6 +363,9 @@ RP2040Audio::RP2040Audio() {
 void __not_in_flash_func(RP2040Audio::ISR_play)() { 
 // void RP2040Audio::ISR_play() {
   pwm_clear_irq(loopTriggerPWMSlice);
+
+	counter++;
+
 	// TODO: get triggered by xferDMA instead?
 	// then check bufPtr here, and swap it, before restarting?
 	// in that case we wouldn't need the rewind DMA. 

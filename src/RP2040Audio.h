@@ -96,6 +96,9 @@ public:
 	// are we playing a sample (otherwise we are silent)
 	bool playing = false;
 
+	// some timing data
+	unsigned long counter = 0;
+
   RP2040Audio();
 	// NOTE: these ISRs will need binding to the single instance
 	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
