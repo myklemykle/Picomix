@@ -100,8 +100,7 @@ struct AudioBuffer {
 
 class RP2040Audio {
 public:
-	// Two transfer buffers, one per port
-  AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> transferBuffer[2];
+  AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> transferBuffer;
 	// RAM buffer for samples loaded from flash
   AudioBuffer<1, SAMPLE_BUFF_SAMPLES> sampleBuffer;
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
@@ -122,7 +121,6 @@ public:
 	// some timing data
 	unsigned long counter = 0;
 
-  RP2040Audio();
 	// NOTE: these ISRs will need binding to the single instance
 	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
   void __not_in_flash_func(ISR_play)();
@@ -133,22 +131,17 @@ public:
 	// -- then init them port by port
 	// -- allocate transfer buffers by port 
 	// -- loopslice will not be a thing once double buffering is go ...
-  void init(unsigned char ring1, unsigned char ring2, unsigned char loopSlice);  // allocate & configure PWM and DMA for two TRS ports
+  void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
 
-  // void play(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
-  // void play();   // turn on both channels
-  // void pause(unsigned char port);  // halt PWM & DMA
-  // void pauseAll();  // halt everything
-	//
-	// // I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version
+	// I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version:
 	
-  void _start(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
+  // void _start(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
   void _start();   // turn on both channels
-  void _stop(unsigned char port);  // halt PWM & DMA
+  // void _stop(unsigned char port);  // halt PWM & DMA
   void _stop();  // halt everything
-  void _play(unsigned char port);   // begin transferring sample to the buffer
+  // void _play(unsigned char port);   // begin transferring sample to the buffer
   void _play();   // begin transferring on both channels
-	void _pause(unsigned char port);  // stop transferring
+	// void _pause(unsigned char port);  // stop transferring
 	void _pause();  // stop transferring
 								 
 	void setLooping(bool l);
@@ -157,7 +150,8 @@ public:
 	void setSpeed(float speed);
 	float getSpeed();
 	void setLevel(float level);
-  bool isStarted(unsigned char port);
+  //bool isStarted(unsigned char port);
+  bool isStarted();
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
 	void fillWithSaw(uint count, bool positive = false);
@@ -169,13 +163,13 @@ public:
 	uint32_t sampleLen, sampleStart;
 
 private:
-  int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet. 
-  int wavCtrlCh[2] = {-1, -1};
-	pwm_config pCfg[2], tCfg;
+  int wavDataCh = -1;  // -1 = DMA channel not assigned yet. 
+  int wavCtrlCh = -1;
+  unsigned int pwmSlice = 0;
+	pwm_config pCfg, tCfg;
 	int dmaTimer;
-  unsigned int pwmSlice[2];
 	// TODO: for double buffering, bufPtr[2][2]
-  short* bufPtr[2];
+  short* bufPtr;
   io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 
@@ -185,29 +179,8 @@ private:
 	volatile int32_t sampleBuffCursor_fr = 0, sampleBuffInc_fr = (1 * SAMPLEBUFFCURSOR_SCALE); // fractional value: 
 																																														 
 	void setup_dma_channels();
-	void setup_audio_pwm_slice(int channel, unsigned char pin);
+	void setup_audio_pwm_slice(unsigned char pin);
 	void setup_loop_pwm_slice(unsigned char loopSlice);
 };
-
-// // TODO: seperate channel objects:
-// class RP2040AudioChannel {
-// public:
-//   short transferBuffer[TRANSFER_BUFF_SAMPLES];
-//   short sampleBuffer[SAMPLE_BUFF_SAMPLES];
-// 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
-// 	//unsigned char loopTriggerPWMSlice; //share
-// 	// bool tweaking = false; // share
-// 	bool looping = true;
-//
-// private:
-//   int wavDataCh;
-//   int wavCtrlCh;
-// 	//int dmaTimer;   // both channels one sample rate for now
-//   unsigned int pwmSlice;
-//   short* bufPtr;
-//   unsigned short volumeLevel = 0; // TODO split
-// 	size_t sampleLen; // TODO split
-// 	volatile size_t sampleBuffCursor = 0;
-// };
 
 #endif  // __RP2040AUDIO_H
