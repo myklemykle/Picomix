@@ -102,8 +102,8 @@ public:
   RP2040Audio();
 	// NOTE: these ISRs will need binding to the single instance
 	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
-  void __not_in_flash_func(ISR_play)();
-  void __not_in_flash_func(ISR_test)();
+  void ISR_play();
+  void ISR_test();
 
 	// TODO: more general-purpose init() process:
 	// -- specify total number of ports (stereo pairs), could be 1, 2, more ...
