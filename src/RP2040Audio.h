@@ -16,8 +16,6 @@
                                                     // which means that the HF noise is really getting well-suppressed. 
                                                     // With 12-bit audio, that noise is getting down into the almost-audible 
                                                     // spectrum, so output filtering is more crucial.
-																										//
-                                                    // TODO: PDM could improve this, if more sample resolution was needed.
 #define WAV_PWM_BITS (WAV_PWM_SCALE + 9)
 #define WAV_PWM_RANGE (1024 * WAV_PWM_SCALE)
 #define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's setting
@@ -88,12 +86,16 @@
 
 template < const uint8_t c, const long int s >
 struct AudioBuffer {
+	const uint8_t resolution = 2; // bytes per a single channel's sample
+
 	const uint8_t channels = c; // # of interleaved channels of samples: mono = 1, stereo = 2
 	const long int samples = s;	// number of N-channel samples in this buffer
-														
-	const uint8_t resolution = 2; // bytes per a single channel's sample
-	
 	int16_t data[c * s]; 
+
+	void fillWithNoise();
+	void fillWithSine(uint count, bool positive = false);
+	void fillWithSaw(uint count, bool positive = false);
+	void fillWithSquare(uint count, bool positive = false);
 };
 
 typedef AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> TransferBuffer;
@@ -145,7 +147,6 @@ public:
 	// is the buffer timing being tweaked at the moment?
 	bool tweaking = false;
 
-	// TODO: need to track these per-port:
 	// are we looping the buffer?
 	bool looping = true;
 	int loops = -1;
@@ -174,10 +175,6 @@ public:
 	void setSpeed(float speed);
 	float getSpeed();
 	void setLevel(float level);
-	void fillWithNoise();
-	void fillWithSine(uint count, bool positive = false);
-	void fillWithSaw(uint count, bool positive = false);
-	void fillWithSquare(uint count, bool positive = false);
 	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 

@@ -396,52 +396,56 @@ void RP2040Audio::ISR_test() {
 // and WAV_PWM_COUNT
 //
 // fill buffer with white noise (signed)
-void RP2040Audio::fillWithNoise(){
+template < const uint8_t channels, const long int samples >
+void AudioBuffer<channels, samples>::fillWithNoise(){
 	randomSeed(666);
-	for(int i=0; i<SAMPLE_BUFF_SAMPLES; i++){
-		sampleBuffer.data[i] = random(WAV_PWM_RANGE) - (WAV_PWM_RANGE / 2);
+	for(int i=0; i<(channels * samples); i++){
+		data[i] = random(WAV_PWM_RANGE) - (WAV_PWM_RANGE / 2);
 	}
 }
 
 // fill buffer with sine waves
-void RP2040Audio::fillWithSine(uint count, bool positive){
+template < const uint8_t channels, const long int samples >
+void AudioBuffer<channels, samples>::fillWithSine(uint count, bool positive){
 	const float twoPI = 6.283;
 	const float scale = (WAV_PWM_RANGE) / 2;
 
-	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS){
-		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-			sampleBuffer.data[i + j] = (int) (scale
-					* sin( (float)i * count / (float)SAMPLE_BUFF_SAMPLES * twoPI )
+	for (int i=0; i<samples; i+= channels){
+		for(int j=0;j<channels ; j++)
+			data[i + j] = (int) (scale
+					* sin( (float)i * count / (float)samples * twoPI )
 				 ) + (positive ? scale : 0) ; // shift sample to positive? (so the ISR routine doesn't have to)
 	}
 }
 
 // fill buffer with square waves
-void RP2040Audio::fillWithSquare(uint count, bool positive){
-	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS)
-		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-		 if ((i*count)%SAMPLE_BUFF_SAMPLES < (SAMPLE_BUFF_SAMPLES / 2)){
-			 sampleBuffer.data[i + j] = positive ? WAV_PWM_RANGE : (WAV_PWM_RANGE)/ 2;
+template < const uint8_t channels, const long int samples >
+void AudioBuffer<channels, samples>::fillWithSquare(uint count, bool positive){
+	for (int i=0; i<samples; i+= channels)
+		for(int j=0;j<channels; j++)
+		 if ((i*count)%samples < (samples / 2)){
+			 data[i + j] = positive ? WAV_PWM_RANGE : (WAV_PWM_RANGE)/ 2;
 		 } else {
-			 sampleBuffer.data[i + j] = positive ? 0 : 0 - ((WAV_PWM_RANGE) / 2);
+			 data[i + j] = positive ? 0 : 0 - ((WAV_PWM_RANGE) / 2);
 		 }
 }
 
 // fill buffer with sawtooth waves running negative to positive
 // (Still slightly buggy ...)
-void RP2040Audio::fillWithSaw(uint count, bool positive){
+template < const uint8_t channels, const long int samples >
+void AudioBuffer<channels, samples>::fillWithSaw(uint count, bool positive){
 	const float twoPI = 6.283;
 	const float scale = (WAV_PWM_RANGE) / 2;
 
-	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS){
-		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-			sampleBuffer.data[i + j] = (int)
+	for (int i=0; i<samples; i+= channels){
+		for(int j=0;j<channels; j++)
+			data[i + j] = (int)
 
 				// i 																																// 0 -> SAMPLE_BUFF_SAMPLES-1
 				// i / (SAMPLE_BUFF_SAMPLES - 1) 																			// 0 -> 1
 				// i * WAV_PWM_RANGE / (SAMPLE_BUFF_SAMPLES -1) 												// 0 -> WAV_PWM_RANGE
+				(i * count * WAV_PWM_RANGE / (samples -1) ) % WAV_PWM_RANGE // 0 -> WAV_PWM_RANGE, count times
 				// (i * count) * WAV_PWM_RANGE / (SAMPLE_BUFF_SAMPLES -1) 							// 0 -> count*WAV_PWM_RANGE
-				(i * count * WAV_PWM_RANGE / (SAMPLE_BUFF_SAMPLES -1) ) % WAV_PWM_RANGE // 0 -> WAV_PWM_RANGE, count times
 					- (positive ? 0 : (WAV_PWM_RANGE / 2)) ; // shift to 50% negative?
 	}
 }
