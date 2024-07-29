@@ -96,16 +96,49 @@ struct AudioBuffer {
 	int16_t data[c * s]; 
 };
 
+typedef AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> TransferBuffer;
+
 #include "hardware/pwm.h"
+
+//////////////
+// The PWMStreamer sets up & manages a pure-hardware stream
+// from a memory buffer to a PWM instance.  Once this is 
+// running it consumes no MCU cycles.
+//
+struct PWMStreamer {
+	unsigned char loopTriggerPWMSlice; // an unused pwm slice that we can make a loop timer from:
+  int wavDataCh = -1;  // -1 = DMA channel not assigned yet. 
+  int wavCtrlCh = -1;
+  unsigned int pwmSlice = 0;
+	pwm_config pCfg, tCfg;
+	int dmaTimer;
+	// TODO: for double buffering, bufPtr[2][2]
+  int16_t *bufPtr;
+  TransferBuffer *tBuf;
+
+	PWMStreamer(TransferBuffer &aB){
+		tBuf = &aB;
+		bufPtr = tBuf->data;
+	}
+
+  void init(unsigned char ring, unsigned char loopSlice);
+	void setup_dma_channels();
+	void setup_audio_pwm_slice(unsigned char pin);
+	void setup_loop_pwm_slice(unsigned char loopSlice);
+  void _start();   
+  void _stop(); 
+  bool isStarted();
+};
+
 
 class RP2040Audio {
 public:
-  AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> transferBuffer;
+  TransferBuffer transferBuffer;
 	// RAM buffer for samples loaded from flash
   AudioBuffer<1, SAMPLE_BUFF_SAMPLES> sampleBuffer;
+	PWMStreamer pwm{transferBuffer};
+
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
-	// an unused pwm slice that we can make a loop timer from:
-	unsigned char loopTriggerPWMSlice;
 	// is the buffer timing being tweaked at the moment?
 	bool tweaking = false;
 
@@ -126,23 +159,11 @@ public:
   void __not_in_flash_func(ISR_play)();
   void __not_in_flash_func(ISR_test)();
 
-	// TODO: more general-purpose init() process:
-	// -- specify total number of ports (stereo pairs), could be 1, 2, more ...
-	// -- then init them port by port
-	// -- allocate transfer buffers by port 
-	// -- loopslice will not be a thing once double buffering is go ...
   void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
 
 	// I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version:
-	
-  // void _start(unsigned char port);   // turn on one channel PWM & DMA and start looping the buffer
-  void _start();   // turn on both channels
-  // void _stop(unsigned char port);  // halt PWM & DMA
-  void _stop();  // halt everything
-  // void _play(unsigned char port);   // begin transferring sample to the buffer
-  void _play();   // begin transferring on both channels
-	// void _pause(unsigned char port);  // stop transferring
-	void _pause();  // stop transferring
+  void _play();  
+	void _pause();
 								 
 	void setLooping(bool l);
 	void setLoops(int l);
@@ -150,8 +171,6 @@ public:
 	void setSpeed(float speed);
 	float getSpeed();
 	void setLevel(float level);
-  //bool isStarted(unsigned char port);
-  bool isStarted();
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
 	void fillWithSaw(uint count, bool positive = false);
@@ -163,14 +182,6 @@ public:
 	uint32_t sampleLen, sampleStart;
 
 private:
-  int wavDataCh = -1;  // -1 = DMA channel not assigned yet. 
-  int wavCtrlCh = -1;
-  unsigned int pwmSlice = 0;
-	pwm_config pCfg, tCfg;
-	int dmaTimer;
-	// TODO: for double buffering, bufPtr[2][2]
-  short* bufPtr;
-  io_rw_32* interpPtr;
   unsigned short volumeLevel = 0;
 
 	// *_fr means a 32-bit fractional value, where 27 bits hold the integer and the remaining 5 bits hold 32nds of an integer
@@ -178,9 +189,6 @@ private:
 #define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8,16
 	volatile int32_t sampleBuffCursor_fr = 0, sampleBuffInc_fr = (1 * SAMPLEBUFFCURSOR_SCALE); // fractional value: 
 																																														 
-	void setup_dma_channels();
-	void setup_audio_pwm_slice(unsigned char pin);
-	void setup_loop_pwm_slice(unsigned char loopSlice);
 };
 
 #endif  // __RP2040AUDIO_H

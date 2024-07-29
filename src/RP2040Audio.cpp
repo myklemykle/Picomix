@@ -21,30 +21,63 @@
 #include "hardware/interp.h"
 #include "RP2040Audio.h"
 
-// Digital Limiter: 
-// interp1 will limit signed integers to within +/- WAV_PWM_RANGE/2
-void setup_interp1_clamp(){
-		interp_config cfg = interp_default_config();
-    interp_config_set_clamp(&cfg, true);
-    interp_config_set_signed(&cfg, true);
-    interp_set_config(interp1, 0, &cfg);
+void PWMStreamer::setup_audio_pwm_slice(unsigned char pin){
+	pwmSlice = pwm_gpio_to_slice_num(pin);
 
-		interp1->base[0] = 0 - (WAV_PWM_RANGE / 2);;
-    interp1->base[1] = (WAV_PWM_RANGE / 2) -1;
+	// halt
+	pwm_set_enabled(pwmSlice, false);
+
+	// initialize:
+	pCfg = pwm_get_default_config();
+	pwm_config_set_wrap(&pCfg, WAV_PWM_COUNT);
+	pwm_init(pwmSlice, &pCfg, false);
+	pwm_set_irq_enabled(pwmSlice, false);
+
+	// line them up & adjust levels
+	pwm_set_both_levels(pwmSlice, 0, 0);
+	pwm_set_counter(pwmSlice, 0);
 }
 
-// ALERT: This methods assumes you've already set up the pwm slices!
-void RP2040Audio::setup_dma_channels(){
-  dma_channel_config wavDataChConfig, wavCtrlChConfig;
+void PWMStreamer::setup_loop_pwm_slice(unsigned char loopSlice){
 
+	loopTriggerPWMSlice = loopSlice;
+
+	// triggerSlice generates an interrupt in sync with that one,
+	// but is scaled to only once per TRANSFER_BUFF_SAMPLES samples.
+	// It triggers a refill of the transfer buffer.  It is just
+	// for IRQs & isn't connected to any pins.
+
+	pwm_set_enabled(loopTriggerPWMSlice, false);
+
+	// initialize:
+
+	tCfg = pwm_get_default_config();
+
+	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
+	pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
+	pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS * 3);
+
+	// instead:
+	// pwm_config_set_wrap(&tCfg, LOOP_PWM_COUNT);
+	// pwm_config_set_clkdiv_int_frac(&tCfg, LOOP_PWM_NUM, LOOP_PWM_DEN);
+
+	pwm_init(loopTriggerPWMSlice, &tCfg, false);
+	pwm_set_irq_enabled(loopTriggerPWMSlice, true);
+	irq_set_enabled(PWM_IRQ_WRAP, true);
+
+	// give the buffer writes a head start on the DMA reads. see tweak() for explanation of the magic number 28.
+	pwm_set_counter(loopTriggerPWMSlice, 28);
+}
+
+// ALERT: This methods assumes you've already set up the pwm slices
+void PWMStreamer::setup_dma_channels(){
+  dma_channel_config wavDataChConfig, wavCtrlChConfig;
 
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
 	dmaTimer = dma_claim_unused_timer(true /* required */);
-	//dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
 	dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE * 3);  // HACK! play back at 1/3 PWM rate
+	//dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
 	//dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
-
-	bufPtr = transferBuffer.data;
 
 	if (wavDataCh < 0) {  // if uninitialized
 		Dbg_println("getting dma");
@@ -75,9 +108,9 @@ void RP2040Audio::setup_dma_channels(){
 		wavDataCh,                                                  // channel to config
 		&wavDataChConfig,                                           // this configuration
 		(void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice)),  // write to pwm channel (pwm structures are 0x14 bytes wide)
-		transferBuffer.data,                                        // read from here (this value will be overwritten if we start the other loop first)
-		TRANSFER_BUFF_SAMPLES / 2,                                  // transfer exactly (samples/2) times (cuz 2 samples per transfer)
-																															 // TODO: when double-buffering, divide that by 2 again.
+		tBuf->data,                                        // read from here (this value will be overwritten if we start the other loop first)
+		TRANSFER_BUFF_SAMPLES / 2,                         // transfer exactly (samples/2) times (cuz 2 samples per transfer)
+																											 // TODO: when double-buffering, divide that by 2 again.
 		false);
 
 
@@ -89,73 +122,23 @@ void RP2040Audio::setup_dma_channels(){
 	channel_config_set_write_increment(&wavCtrlChConfig, false);
 	channel_config_set_transfer_data_size(&wavCtrlChConfig, DMA_SIZE_32);
 	channel_config_set_chain_to(&wavCtrlChConfig, wavDataCh);  // chain to the wav PWM channel when finished.
+
+	// This scheme requires 32 bits of RAM to hold a pointer to our buffer data
+	// that the control DMA can copy to the wave DMA's config, over and over.
+	// That's why bufPtr is a class variable of PWMStreamer instead of a local var:
+	bufPtr = tBuf->data;
+
 	dma_channel_configure(
 		wavCtrlCh,                         // Channel to be configured
-		&wavCtrlChConfig,                        // The configuration we just created
+		&wavCtrlChConfig,                  // The configuration we just created
 		&dma_hw->ch[wavDataCh].read_addr,  // Write address (wav PWM channel read address)
-		&bufPtr,                                 // Read address (POINTER TO AN ADDRESS) ... contains the address that this DMA writes to the other DMA's read-address.
-		1,                                       // transfer 32 bits one time.
-		false                                    // Don't start immediately
+		&bufPtr,                           // Read address (POINTER TO AN ADDRESS) ... contains the address that this DMA writes to the other DMA's read-address.
+		1,                                 // transfer 32 bits one time.
+		false                              // Don't start immediately
 	);
-
-	Dbg_flush();
 }
 
-void RP2040Audio::setup_audio_pwm_slice(unsigned char pin){
-	pwmSlice = pwm_gpio_to_slice_num(pin);
-
-	// halt 
-	pwm_set_enabled(pwmSlice, false);
-
-	// initialize:
-	pCfg = pwm_get_default_config();
-	pwm_config_set_wrap(&pCfg, WAV_PWM_COUNT);
-	pwm_init(pwmSlice, &pCfg, false);
-	pwm_set_irq_enabled(pwmSlice, false);
-
-	// line them up & adjust levels
-	pwm_set_both_levels(pwmSlice, 0, 0);
-	pwm_set_counter(pwmSlice, 0);
-}
-
-void RP2040Audio::setup_loop_pwm_slice(unsigned char loopSlice){
-
-	loopTriggerPWMSlice = loopSlice;
-
-	// triggerSlice generates an interrupt in sync with that one,
-	// but is scaled to only once per TRANSFER_BUFF_SAMPLES samples.
-	// It triggers a refill of the transfer buffer.  It is just
-	// for IRQs & isn't connected to any pins.
-
-	pwm_set_enabled(loopTriggerPWMSlice, false);
-
-	// initialize:
-
-	tCfg = pwm_get_default_config();
-
-	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
-	pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
-	pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS * 3);
-
-	// instead:
-	// pwm_config_set_wrap(&tCfg, LOOP_PWM_COUNT);
-	// pwm_config_set_clkdiv_int_frac(&tCfg, LOOP_PWM_NUM, LOOP_PWM_DEN);
-
-	pwm_init(loopTriggerPWMSlice, &tCfg, false);
-	pwm_set_irq_enabled(loopTriggerPWMSlice, true);
-	irq_set_enabled(PWM_IRQ_WRAP, true);
-
-	// give the buffer writes a head start on the DMA reads. see tweak() for explanation of the magic number 28.
-	pwm_set_counter(loopTriggerPWMSlice, 28);  
-}
-
-// This gets called once at startup to set up both stereo PWMs for both ports
-void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
-
-	/////////////////////////
-	// set up interp1 for clamping (used by ISR)
-	setup_interp1_clamp();
-
+void PWMStreamer::init(unsigned char ring, unsigned char loopSlice) {
 	////////////////////////////
 	// Set up PWM slices
 	setup_audio_pwm_slice(ring); // Enable PWM assigned to pins { ring, ring+1 }
@@ -164,38 +147,57 @@ void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
 	/////////////////////////
 	// claim and set up DMA channels
 	setup_dma_channels();
-
 }
 
-
-bool RP2040Audio::isStarted() {
+bool PWMStreamer::isStarted() {
 	if (dma_channel_is_busy(wavDataCh))
 		return true;
 
-	// This is tricky: 
-	// approx 1 time per transfer buffer rewind 
-	// (that's (TRANSFER_BUFF_SAMPLES/2) / WAV_SAMPLE_RATE hz) 
+	// Problem:
+	// Approx 1 time per transfer buffer rewind
+	// (that's (TRANSFER_BUFF_SAMPLES/2) / WAV_SAMPLE_RATE hz)
 	// the loop control DMA resets this DMA.
-	// This DMA channel could be not_busy at that moment 
-	// even when the channel isStarted.
+	// This DMA channel could be not_busy() at that moment
+	// even when the channel isStarted(). If this method is
+	// called during that reset window, it could get something wrong.
 	//
-	// That reset window could be pretty short. 
-	// I don't know how many cycles it takes for a chain between DMAs 
+	// That reset window could be pretty short.
+	// I don't know how many cycles it takes for a chain between DMAs
 	// to happen -- maybe zero! The loop DMA writes a single word
 	// to rewind the data DMA, so that should only need 1 cycle.
 	// But with 4 DMA channels round-robining, that's really 4 cycles, minimum.
+	// If other DMA is in use it could be more.
 	//
 	// So the odds of hitting this reset window when we call dma_channel_is_busy()
 	// are as described above: extremely low, but not impossible.
 	//
 	// How to do better? Check twice.
-	// dma_channel_is_busy() seems to compile down to 9 instructions, 
-	// so it takes at least 9 cycles.
+	// dma_channel_is_busy() compiles down to 9 instructions,
+	// so it takes at least 9 cycles + calling overhead.
 	//
-	// In the unlikely event we hit the reset window with the last check, 
+	// In the unlikely event we hit the reset window with the last check,
 	// I hope this next check will still spot a busy channel.
 	
 	return dma_channel_is_busy(wavDataCh);
+}
+
+// This gets called once at startup to set up both stereo PWMs for both ports
+void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
+
+	/////////////////////////
+	// set up digital limiter (used by ISR)
+	// interp1 will clamp signed integers to within +/- WAV_PWM_RANGE/2
+	interp_config cfg = interp_default_config();
+	interp_config_set_clamp(&cfg, true);
+	interp_config_set_signed(&cfg, true);
+	interp_set_config(interp1, 0, &cfg);
+
+	interp1->base[0] = 0 - (WAV_PWM_RANGE / 2);;
+	interp1->base[1] = (WAV_PWM_RANGE / 2) -1;
+
+	////////////////////////
+	// set up PWM streaming
+	pwm.init(ring, loopSlice);
 }
 
 
@@ -214,12 +216,11 @@ void RP2040Audio::_play(){
 
 	sampleBuffCursor_fr = c * SAMPLEBUFFCURSOR_SCALE;
 	playing = true;
-		loopCount = max(1, loops); 
+		loopCount = max(1, loops);
 	// Dbg_println("playing");
 }
 
-void RP2040Audio::_stop(){
-	// TO PAUSE ALL:
+void PWMStreamer::_stop(){
 	// abort both data & loop DMAs
 	// disable both audio PWMs and the xfer trigger PWM.
 	dma_channel_abort(wavDataCh);
@@ -230,22 +231,19 @@ void RP2040Audio::_stop(){
 	Dbg_println("all stopped");
 }
 
-void RP2040Audio::_start() {
+void PWMStreamer::_start() {
 	/*********************************************/
 	/* Stop playing audio if DMA already active. */
 	/*********************************************/
 	if (isStarted())
 		_stop();
 
-	// rewind cursor
-	sampleBuffCursor_fr = playbackStart;
-
 	// rewind pwm
 	pwm_init(pwmSlice, &pCfg, false);
 	pwm_set_counter(pwmSlice, 0);
 
 	pwm_init(loopTriggerPWMSlice, &tCfg, false);
-	pwm_set_counter(loopTriggerPWMSlice, 28);  
+	pwm_set_counter(loopTriggerPWMSlice, 28);
 	
 	/**********************/
 	/* Start WAV PWM DMA. */
@@ -269,7 +267,7 @@ inline bool RP2040Audio::_doneLooping(){
 
 void RP2040Audio::setSpeed(float speed){
 	if (speed == 0) // no. do not do this.
-		return; 
+		return;
 
 	sampleBuffInc_fr = int(speed * SAMPLEBUFFCURSOR_SCALE);
 	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
@@ -286,19 +284,19 @@ void RP2040Audio::setLevel(float level){
 	iVolumeLevel = max(0, level * WAV_PWM_RANGE);
 }
 
-// This ISR sends a single stereo audio stream to two different outputs on two different PWM slices. 
+// This ISR sends a single stereo audio stream to two different outputs on two different PWM slices.
 // init() sets up an interrupt every TRANSFER_WINDOW_XFERS output samples,
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
-void __not_in_flash_func(RP2040Audio::ISR_play)() { 
+void __not_in_flash_func(RP2040Audio::ISR_play)() {
 // void RP2040Audio::ISR_play() {
-	pwm_clear_irq(loopTriggerPWMSlice);
+	pwm_clear_irq(pwm.loopTriggerPWMSlice);
 
 	counter++;
 
 	// TODO: get triggered by xferDMA instead?
 	// then check bufPtr here, and swap it, before restarting?
-	// in that case we wouldn't need the rewind DMA. 
+	// in that case we wouldn't need the rewind DMA.
 	//
 	// unloop some math that won't change:
 	int32_t playbackEndScaled = min((playbackStart + playbackLen), sampleLen) * SAMPLEBUFFCURSOR_SCALE;
@@ -318,13 +316,13 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			
 			// Since amplitude can go over max, use interpolator #1 in clamp mode
 			// to hard-limit the signal.
-			interp1->accum[0] = 
-												(short)( 
+			interp1->accum[0] =
+												(short)(
 													(long) (
 														sampleBuffer.data[sampleBuffCursor_fr / SAMPLEBUFFCURSOR_SCALE]
 														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
-													/ WAV_PWM_RANGE      // scale denominator 
+													/ WAV_PWM_RANGE      // scale denominator
 												)
 				;
 			// TODO: set up interp0 to perform this add? would that even be faster?
@@ -332,16 +330,16 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		}
 
 		// put that sample in both channels of both outputs:
-		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++) 
+		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++)
 			transferBuffer.data[i+j] = scaledSample;
 
 
-		// advance cursor: 
+		// advance cursor:
 		// this is a scaled cursor, the bottom bits are fractions of a sample
 		// also, sampleBuffInc_fr may be negative
-		sampleBuffCursor_fr += sampleBuffInc_fr; 
+		sampleBuffCursor_fr += sampleBuffInc_fr;
 
-		if (sampleBuffInc_fr > 0) 
+		if (sampleBuffInc_fr > 0)
 			while (sampleBuffCursor_fr >= playbackEndScaled){
 				if (_doneLooping()) {
 					playing = false;
@@ -353,13 +351,13 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 				}
 			}
 
-		if (sampleBuffInc_fr < 0) 
+		if (sampleBuffInc_fr < 0)
 			while (sampleBuffCursor_fr <= playbackStartScaled){
 				if (_doneLooping()) {
 					playing = false;
 					sampleBuffCursor_fr = playbackEndScaled;
 					//Dbg_println(".deyalp");
-				} else 
+				} else
 					sampleBuffCursor_fr += (playbackEndScaled - playbackStartScaled);
 					loopCount--;
 			}
@@ -367,13 +365,13 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 }
 
 // This ISR time-scales a 1hz sample into 4 output channels at 4 rates, but not (yet) adjusting volume.
-// instead of FP, we will use long ints, and shift off the 8 LSB 
+// instead of FP, we will use long ints, and shift off the 8 LSB
 // This assumes that the sample buffer contains a single complete waveform.
 extern volatile uint32_t sampleCursorInc[4];
 //void __not_in_flash_func(RP2040Audio::ISR_test)() {
 void RP2040Audio::ISR_test() {
 	static long sampleBuffCursor[4] = {0,0,0,0};
-	pwm_clear_irq(loopTriggerPWMSlice);
+	pwm_clear_irq(pwm.loopTriggerPWMSlice);
 
 	for (uint8_t port = 0; port<1; port++) {
 		for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS) {
@@ -397,7 +395,7 @@ void RP2040Audio::ISR_test() {
 //////////
 //
 // These basic utils generate signals in the sampleBuffer.
-// In every case it's signed values between -(WAV_PWM_RANGE/2) 
+// In every case it's signed values between -(WAV_PWM_RANGE/2)
 // and WAV_PWM_COUNT
 //
 // fill buffer with white noise (signed)
@@ -416,7 +414,7 @@ void RP2040Audio::fillWithSine(uint count, bool positive){
 	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS){
 		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
 			sampleBuffer.data[i + j] = (int) (scale
-					* sin( (float)i * count / (float)SAMPLE_BUFF_SAMPLES * twoPI ) 
+					* sin( (float)i * count / (float)SAMPLE_BUFF_SAMPLES * twoPI )
 				 ) + (positive ? scale : 0) ; // shift sample to positive? (so the ISR routine doesn't have to)
 	}
 }
@@ -425,7 +423,7 @@ void RP2040Audio::fillWithSine(uint count, bool positive){
 void RP2040Audio::fillWithSquare(uint count, bool positive){
 	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS)
 		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-		 if ((i*count)%SAMPLE_BUFF_SAMPLES < (SAMPLE_BUFF_SAMPLES / 2)){ 
+		 if ((i*count)%SAMPLE_BUFF_SAMPLES < (SAMPLE_BUFF_SAMPLES / 2)){
 			 sampleBuffer.data[i + j] = positive ? WAV_PWM_RANGE : (WAV_PWM_RANGE)/ 2;
 		 } else {
 			 sampleBuffer.data[i + j] = positive ? 0 : 0 - ((WAV_PWM_RANGE) / 2);
@@ -440,7 +438,7 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 
 	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS){
 		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-			sampleBuffer.data[i + j] = (int) 
+			sampleBuffer.data[i + j] = (int)
 
 				// i 																																// 0 -> SAMPLE_BUFF_SAMPLES-1
 				// i / (SAMPLE_BUFF_SAMPLES - 1) 																			// 0 -> 1
@@ -491,12 +489,12 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 }
 
 // PWM timing adjustment utility.
-// One can use this, along with a scope, to experimentally determine the appropriate 
+// One can use this, along with a scope, to experimentally determine the appropriate
 // moment for the sample buffer refill IRQ to fire, where the buffer writes can
-// race ahead of the DMA channel buffer reads without 
-// wrapping around and overtaking the DMA's cursor position.  
+// race ahead of the DMA channel buffer reads without
+// wrapping around and overtaking the DMA's cursor position.
 // Last time I checked this, 28 was a good value with no distorition.
-// 
+//
 // That's the meaning of  pwm_set_counter(loopTriggerPWMSlice, 28)  in init() above.)
 //
 void RP2040Audio::tweak() {
