@@ -75,12 +75,35 @@
 #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * sizeof(short)
 #define TRANSFER_BUFF_BYTES TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE
 
+////////////////////
+// test tone defs:
+#define TESTTONE_OFF 0
+#define TESTTONE_SINE 1
+#define TESTTONE_SQUARE 2
+#define TESTTONE_SAW 3
+#define TESTTONE_NOISE 4
+#define TESTTONE_NAMES { "off", "sine", "square", "saw", "noise" }
+#define TESTTONE_COUNT 5 // including "off"
+
+
+template < const uint8_t c, const long int s >
+struct AudioBuffer {
+	const uint8_t channels = c; // # of interleaved channels of samples: mono = 1, stereo = 2
+	const long int samples = s;	// number of N-channel samples in this buffer
+														
+	const uint8_t resolution = 2; // bytes per a single channel's sample
+	
+	int16_t data[c * s]; 
+};
+
 #include "hardware/pwm.h"
 
 class RP2040Audio {
 public:
-  short transferBuffer[2][TRANSFER_BUFF_SAMPLES];
-  short sampleBuffer[SAMPLE_BUFF_SAMPLES];
+	// Two transfer buffers, one per port
+  AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> transferBuffer[2];
+	// RAM buffer for samples loaded from flash
+  AudioBuffer<1, SAMPLE_BUFF_SAMPLES> sampleBuffer;
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 	// an unused pwm slice that we can make a loop timer from:
 	unsigned char loopTriggerPWMSlice;

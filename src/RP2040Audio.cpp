@@ -46,7 +46,7 @@ void RP2040Audio::setup_dma_channels(){
 
 	for (int port = 0; port < 2; port++) {
 
-		bufPtr[port] = &(transferBuffer[port][0]);
+		bufPtr[port] = &(transferBuffer[port].data[0]);
 
 		if (wavDataCh[port] < 0) {  // if uninitialized
 			Dbg_println("getting dma");
@@ -78,7 +78,7 @@ void RP2040Audio::setup_dma_channels(){
       wavDataCh[port],                                                  // channel to config
       &wavDataChConfig,                                                 // this configuration
       (void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice[port])),  // write to pwm channel (pwm structures are 0x14 bytes wide)
-      transferBuffer[port],                                                   // read from here (this value will be overwritten if we start the other loop first)
+      transferBuffer[port].data,                                                   // read from here (this value will be overwritten if we start the other loop first)
       TRANSFER_BUFF_SAMPLES / 2,                                           // transfer exactly (samples/2) times (cuz 2 samples per transfer)
 																																					 // TODO: when double-buffering, divide that by 2 again.
       false);
@@ -391,10 +391,10 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			interp1->accum[0] = 
 												(short)( 
 													(long) (
-														sampleBuffer[sampleBuffCursor_fr / SAMPLEBUFFCURSOR_SCALE]
+														sampleBuffer.data[sampleBuffCursor_fr / SAMPLEBUFFCURSOR_SCALE]
 														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
-													/ WAV_PWM_RANGE      // scale denominator (TODO right shift here? or is the compiler smart?)
+													/ WAV_PWM_RANGE      // scale denominator 
 												)
 				;
 			// TODO: set up interp0 to perform this add? would that even be faster?
@@ -403,7 +403,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 
 		// put that sample in both channels of both outputs:
 		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++) 
-			transferBuffer[0][i+j] = transferBuffer[1][i+j] = scaledSample;
+			transferBuffer[0].data[i+j] = transferBuffer[1].data[i+j] = scaledSample;
 
 
 		// advance cursor: 
@@ -451,8 +451,7 @@ void RP2040Audio::ISR_test() {
 				uint8_t pc = (port<<1)+chan;
 
 				// copy from mono samplebuf to stereo transferbuf
-				// transferBuffer[port][i+chan] = sampleBuffer[ sampleBuffCursor[pc]] ;
-				transferBuffer[port][i+chan] = sampleBuffer[ sampleBuffCursor[pc] / 256 ] ;
+				transferBuffer[port].data[i+chan] = sampleBuffer.data[ sampleBuffCursor[pc] / 256 ] ;
 						// + (WAV_PWM_RANGE / 2);  // not shifting! we expect a positive-weighted sample in the buffer (true arg passed to fillWithSine)
 
 				// advance cursor:
@@ -475,7 +474,7 @@ void RP2040Audio::ISR_test() {
 void RP2040Audio::fillWithNoise(){
 	randomSeed(666);
 	for(int i=0; i<SAMPLE_BUFF_SAMPLES; i++){
-		sampleBuffer[i] = random(WAV_PWM_RANGE) - (WAV_PWM_RANGE / 2);
+		sampleBuffer.data[i] = random(WAV_PWM_RANGE) - (WAV_PWM_RANGE / 2);
 	}
 }
 
@@ -486,7 +485,7 @@ void RP2040Audio::fillWithSine(uint count, bool positive){
 
 	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS){
 		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-			sampleBuffer[i + j] = (int) (scale
+			sampleBuffer.data[i + j] = (int) (scale
 					* sin( (float)i * count / (float)SAMPLE_BUFF_SAMPLES * twoPI ) 
 				 ) + (positive ? scale : 0) ; // shift sample to positive? (so the ISR routine doesn't have to)
 	}
@@ -497,9 +496,9 @@ void RP2040Audio::fillWithSquare(uint count, bool positive){
 	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS)
 		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
 		 if ((i*count)%SAMPLE_BUFF_SAMPLES < (SAMPLE_BUFF_SAMPLES / 2)){ 
-			 sampleBuffer[i + j] = positive ? WAV_PWM_RANGE : (WAV_PWM_RANGE)/ 2;
+			 sampleBuffer.data[i + j] = positive ? WAV_PWM_RANGE : (WAV_PWM_RANGE)/ 2;
 		 } else {
-			 sampleBuffer[i + j] = positive ? 0 : 0 - ((WAV_PWM_RANGE) / 2);
+			 sampleBuffer.data[i + j] = positive ? 0 : 0 - ((WAV_PWM_RANGE) / 2);
 		 }
 }
 
@@ -511,7 +510,7 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 
 	for (int i=0; i<SAMPLE_BUFF_SAMPLES; i+= SAMPLE_BUFF_CHANNELS){
 		for(int j=0;j<SAMPLE_BUFF_CHANNELS; j++)
-			sampleBuffer[i + j] = (int) 
+			sampleBuffer.data[i + j] = (int) 
 
 				// i 																																// 0 -> SAMPLE_BUFF_SAMPLES-1
 				// i / (SAMPLE_BUFF_SAMPLES - 1) 																			// 0 -> 1
@@ -528,7 +527,7 @@ void RP2040Audio::fillWithSaw(uint count, bool positive){
 void RP2040Audio::fillFromRawFile(Stream &f){
 	uint32_t bc; // buffer cursor
 	// loading 16-bit data 8 bits at a time ...
-	uint32_t length = f.readBytes((char *)sampleBuffer, SAMPLE_BUFF_BYTES);
+	uint32_t length = f.readBytes((char *)sampleBuffer.data, SAMPLE_BUFF_BYTES);
   if (length<=0){
 		Dbg_println("read failure");
 		return;
@@ -545,18 +544,18 @@ void RP2040Audio::fillFromRawFile(Stream &f){
 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
 	sampleStart = playbackStart = 0;
 	for (bc = sampleStart; bc<length; bc++) {
-		sampleBuffer[bc] = sampleBuffer[bc] / (pow(2, (16 - WAV_PWM_BITS)));
+		sampleBuffer.data[bc] = sampleBuffer.data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
 
 	// // pad sample to a round number of tx windows
 	// int remainder = length % TRANSFER_BUFF_SAMPLES;
 	// if (remainder)
 	// 	for (;remainder <TRANSFER_BUFF_SAMPLES; remainder++)
-	// 		sampleBuffer[length++] = 0;
+	// 		sampleBuffer.data[length++] = 0;
 	
 	// HACK: just blank the rest of the buffer, until we are respecting sample length
 	for (bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
-		sampleBuffer[bc++] = 0;
+		sampleBuffer.data[bc++] = 0;
 
 	sampleLen = playbackLen = length;
 }
