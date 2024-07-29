@@ -197,26 +197,6 @@ void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
 	pwm.init(ring, loopSlice);
 }
 
-
-void RP2040Audio::_pause(){
-	playing = false;
-	// Dbg_println("paused");
-}
-
-void RP2040Audio::_play(){
-	long c;
-	if (sampleBuffInc_fr > 0)  {
-		c = playbackStart;
-	} else {
-		c = min (playbackStart + playbackLen, sampleLen);
-	}
-
-	sampleBuffCursor_fr = c * SAMPLEBUFFCURSOR_SCALE;
-	playing = true;
-		loopCount = max(1, loops);
-	// Dbg_println("playing");
-}
-
 void PWMStreamer::_stop(){
 	// abort both data & loop DMAs
 	// disable both audio PWMs and the xfer trigger PWM.
@@ -252,33 +232,89 @@ void PWMStreamer::_start() {
 	pwm_set_mask_enabled((1 << pwmSlice) | (1 << loopTriggerPWMSlice) | pwm_hw->en);
 }
 
-void RP2040Audio::setLoops(int l){
+
+//////////////////////////////////////////////////
+///  AudioCursor
+//////////////////////////////////////////////////
+
+void AudioCursor::_pause(){
+	playing = false;
+	// Dbg_println("paused");
+}
+
+void AudioCursor::_play(){
+	long c;
+	if (sampleBuffInc_fr5 > 0)  {
+		c = playbackStart;
+	} else {
+		c = min (playbackStart + playbackLen, buf->sampleLen);
+	}
+
+	sampleBuffCursor_fr5 = inttofr5(c);
+	playing = true;
+	loopCount = max(1, loops);
+	// Dbg_println("playing");
+}
+
+void AudioCursor::setLoops(int l){
 	loops = max(-1, l);
 }
 
-inline bool RP2040Audio::_doneLooping(){
+inline bool AudioCursor::_doneLooping(){
 	if (loops < 0) return false;
 	if (loopCount > 1) return false;
 	return true;
 }
 
-void RP2040Audio::setSpeed(float speed){
+void AudioCursor::setSpeed(float speed){
 	if (speed == 0) // no. do not do this.
 		return;
 
-	sampleBuffInc_fr = int(speed * SAMPLEBUFFCURSOR_SCALE);
-	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
+	sampleBuffInc_fr5 = int(inttofr5(speed));
+	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr5);
 }
 
-float RP2040Audio::getSpeed(){
-	float speed = static_cast< float >(sampleBuffInc_fr) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE);
-	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr);
+float AudioCursor::getSpeed(){
+	float speed = fr5tofloat(sampleBuffInc_fr5);
+	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr5);
 	return speed;
 }
 
 // expecting a value between 0 and 1, or higher for trouble ...
-void RP2040Audio::setLevel(float level){
+void AudioCursor::setLevel(float level){
 	iVolumeLevel = max(0, level * WAV_PWM_RANGE);
+}
+
+void AudioCursor::advance(){
+	// TODO: move this to the spots where start/len change ...
+	int32_t playbackStart_fr5 = inttofr5(csr.playbackStart);
+	int32_t playbackEnd_fr5 = inttofr5(min((csr.playbackStart + csr.playbackLen), buf->sampleLen));
+
+	sampleBuffCursor_fr5 += sampleBuffInc_fr5;
+
+	// sampleBuffInc_fr5 may be negative
+	if (sampleBuffInc_fr5 > 0)
+		while (sampleBuffCursor_fr5 >= playbackEnd_fr5){
+			if (_doneLooping()) {
+				playing = false;
+				sampleBuffCursor_fr5 = playbackStart_fr5;
+				//Dbg_println("played.");
+			} else {
+				sampleBuffCursor_fr5 -= (playbackEnd_fr5 - playbackStart_fr5);
+				loopCount--;
+			}
+		}
+
+	if (sampleBuffInc_fr5 < 0)
+		while (sampleBuffCursor_fr5 <= playbackStart_fr5){
+			if (_doneLooping()) {
+				playing = false;
+				sampleBuffCursor_fr5 = playbackEnd_fr5;
+				//Dbg_println(".deyalp");
+			} else
+				sampleBuffCursor_fr5 += (playbackEnd_fr5 - playbackStart_fr5);
+				loopCount--;
+		}
 }
 
 // This ISR sends a single stereo audio stream to two different outputs on two different PWM slices.
@@ -286,7 +322,6 @@ void RP2040Audio::setLevel(float level){
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
 void __not_in_flash_func(RP2040Audio::ISR_play)() {
-// void RP2040Audio::ISR_play() {
 	pwm_clear_irq(pwm.loopTriggerPWMSlice);
 
 	counter++;
@@ -296,17 +331,15 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	// in that case we wouldn't need the rewind DMA.
 	//
 	// unloop some math that won't change:
-	int32_t playbackEndScaled = min((playbackStart + playbackLen), sampleLen) * SAMPLEBUFFCURSOR_SCALE;
-	int32_t playbackStartScaled = playbackStart * SAMPLEBUFFCURSOR_SCALE;
 	short scaledSample;
 
 	for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
 		// // sanity check:
-		// if (sampleBuffCursor_fr < 0)
+		// if (sampleBuffCursor_fr5 < 0)
 		// 	Dbg_println("!preD");
 
 		// get next sample:
-		if (!playing){
+		if (!csr.playing){
 			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
 																				
 		} else {
@@ -316,7 +349,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			interp1->accum[0] =
 												(short)(
 													(long) (
-														sampleBuffer.data[sampleBuffCursor_fr / SAMPLEBUFFCURSOR_SCALE]
+														sampleBuffer.data[fr5toint(csr.sampleBuffCursor_fr5)]
 														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator
@@ -330,34 +363,8 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++)
 			transferBuffer.data[i+j] = scaledSample;
 
+		csr.advance();
 
-		// advance cursor:
-		// this is a scaled cursor, the bottom bits are fractions of a sample
-		// also, sampleBuffInc_fr may be negative
-		sampleBuffCursor_fr += sampleBuffInc_fr;
-
-		if (sampleBuffInc_fr > 0)
-			while (sampleBuffCursor_fr >= playbackEndScaled){
-				if (_doneLooping()) {
-					playing = false;
-					sampleBuffCursor_fr = playbackStartScaled;
-					//Dbg_println("played.");
-				} else {
-					sampleBuffCursor_fr -= (playbackEndScaled - playbackStartScaled);
-					loopCount--;
-				}
-			}
-
-		if (sampleBuffInc_fr < 0)
-			while (sampleBuffCursor_fr <= playbackStartScaled){
-				if (_doneLooping()) {
-					playing = false;
-					sampleBuffCursor_fr = playbackEndScaled;
-					//Dbg_println(".deyalp");
-				} else
-					sampleBuffCursor_fr += (playbackEndScaled - playbackStartScaled);
-					loopCount--;
-			}
 	}
 }
 
@@ -453,41 +460,73 @@ void AudioBuffer<channels, samples>::fillWithSaw(uint count, bool positive){
 // load a raw PCM audio file, which you can create with sox:
 //       sox foo.wav foo.raw
 // assuming foo.raw contains signed 16-bit samples
-void RP2040Audio::fillFromRawFile(Stream &f){
+template < const uint8_t channels, const long int samples >
+void AudioBuffer<channels, samples>::fillFromRawFile(Stream &f){
 	uint32_t bc; // buffer cursor
 	// loading 16-bit data 8 bits at a time ...
-	uint32_t length = f.readBytes((char *)sampleBuffer.data, SAMPLE_BUFF_BYTES);
+	//uint32_t length = f.readBytes((char *)sampleBuffer.data, SAMPLE_BUFF_BYTES);
+	uint32_t length = f.readBytes((char *)data, byteLen());
 	if (length<=0){
 		Dbg_println("read failure");
 		return;
 	}
 
-	if (length==SAMPLE_BUFF_BYTES){
+	if (length==byteLen()){
 		Dbg_println("sample truncated");
 	}
 
-	// presuming length in bytes is even since all samples are two bytes,
 	// convert it to length in samples
-	length = length / 2;
+	sampleLen = length / sampleBuffer.resolution;
 
 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
 	sampleStart = playbackStart = 0;
-	for (bc = sampleStart; bc<length; bc++) {
+	for (bc = sampleStart; bc<sampleLen; bc++) {
 		sampleBuffer.data[bc] = sampleBuffer.data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
 
-	// // pad sample to a round number of tx windows
-	// int remainder = length % TRANSFER_BUFF_SAMPLES;
-	// if (remainder)
-	// 	for (;remainder <TRANSFER_BUFF_SAMPLES; remainder++)
-	// 		sampleBuffer.data[length++] = 0;
-	
-	// HACK: just blank the rest of the buffer, until we are respecting sample length
-	for (bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
-		sampleBuffer.data[bc++] = 0;
+	// Needed?
+	// blank the rest of the buffer
+	for (bc = sampleLen; bc < TRANSFER_BUFF_SAMPLES; bc++)
+		data[bc++] = 0;
 
-	sampleLen = playbackLen = length;
+	return sampleLen;
 }
+
+uint32_t AudioCursor::fillFromRawFile(Stream &f){
+	playbackLen = csr.fillFromRawFile(f);
+	return playbackLen;
+}
+
+// void RP2040Audio::fillFromRawFile(Stream &f){
+// 	uint32_t bc; // buffer cursor
+// 	// loading 16-bit data 8 bits at a time ...
+// 	//uint32_t length = f.readBytes((char *)sampleBuffer.data, SAMPLE_BUFF_BYTES);
+// 	uint32_t length = f.readBytes((char *)sampleBuffer.data, sampleBuffer.byteLen());
+// 	if (length<=0){
+// 		Dbg_println("read failure");
+// 		return;
+// 	}
+//
+// 	if (length==sampleBuffer.byteLen()){
+// 		Dbg_println("sample truncated");
+// 	}
+//
+// 	// convert it to length in samples
+// 	length = length / sampleBuffer.resolution;
+//
+// 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
+// 	sampleStart = playbackStart = 0;
+// 	for (bc = sampleStart; bc<length; bc++) {
+// 		sampleBuffer.data[bc] = sampleBuffer.data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
+// 	}
+//
+// 	// Needed?
+// 	// blank the rest of the buffer
+// 	for (bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
+// 		sampleBuffer.data[bc++] = 0;
+//
+// 	sampleLen = playbackLen = length;
+// }
 
 // PWM timing adjustment utility.
 // One can use this, along with a scope, to experimentally determine the appropriate

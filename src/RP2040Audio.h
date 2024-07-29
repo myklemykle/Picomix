@@ -84,6 +84,9 @@
 #define TESTTONE_COUNT 5 // including "off"
 
 
+////////////////
+// Audiobuffer stores channels x samples of audio
+//
 template < const uint8_t c, const long int s >
 struct AudioBuffer {
 	const uint8_t resolution = 2; // bytes per a single channel's sample
@@ -91,11 +94,19 @@ struct AudioBuffer {
 	const uint8_t channels = c; // # of interleaved channels of samples: mono = 1, stereo = 2
 	const long int samples = s;	// number of N-channel samples in this buffer
 	int16_t data[c * s]; 
+	uint32_t sampleStart = 0;
+	uint32_t sampleLen;
+
+	inline uint32_t byteLen(){
+		return channels * samples * resolution;
+	}
 
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
 	void fillWithSaw(uint count, bool positive = false);
 	void fillWithSquare(uint count, bool positive = false);
+	uint32_t fillFromRawFile(Stream &f);
+
 };
 
 typedef AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> TransferBuffer;
@@ -135,25 +146,60 @@ private:
 	void setup_loop_pwm_slice(unsigned char loopSlice);
 };
 
+////////////////////
+// *_fr5 means a 32-bit fractional value, where 27 bits hold the integer and the remaining 5 bits hold 32nds of an integer
+//
+
+typedef int32_t fr5_t;
+#define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4, 5
+#define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8,16
+#define fr5toint(fr5) (fr5 / SAMPLEBUFFCURSOR_SCALE)
+#define fr5tofloat(fr5) (static_cast< float >(fr5) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE))
+#define inttofr5(i32) (i32 * SAMPLEBUFFCURSOR_SCALE)
+
+///////////////////
+// AudioCursor plays through an AudioBuffer at an adjustable rate & level
+// It handles play/pause/seek (with wraparound) and looping.
+
+template < const uint8_t channels, const long int samples >
+struct AudioCursor {
+	AudioBuffer<channels, samples> *buf;
+	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
+
+	volatile fr5_t sampleBuffCursor_fr5 =	inttofr5(0);
+	volatile fr5_t sampleBuffInc_fr5 = 		inttofr5(1); // fractional value: 
+																																														 //
+	bool looping = true;
+	int loops = -1;
+	int loopCount = 0;
+	bool playing = false;
+
+	uint32_t fillFromRawFile(Stream &f);
+	// I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version:
+  void _play();  
+	void _pause();
+	void setLooping(bool l);
+	void setLoops(int l);
+	bool _doneLooping(); // _why?
+	void setSpeed(float speed);
+	float getSpeed();
+	void setLevel(float level);
+	void advance();
+	uint32_t playbackLen, playbackStart; // public until we need accessors
+private:
+																																														 
+};
 
 class RP2040Audio {
 public:
   TransferBuffer transferBuffer;
-	// RAM buffer for samples loaded from flash
-  AudioBuffer<1, SAMPLE_BUFF_SAMPLES> sampleBuffer;
 	PWMStreamer pwm{transferBuffer};
 
-	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
+  AudioBuffer<1, SAMPLE_BUFF_SAMPLES> sampleBuffer;
+	AudioCursor<1, SAMPLE_BUFF_SAMPLES> csr;
+
 	// is the buffer timing being tweaked at the moment?
 	bool tweaking = false;
-
-	// are we looping the buffer?
-	bool looping = true;
-	int loops = -1;
-	int loopCount = 0;
-
-	// are we playing a sample (otherwise we are silent)
-	bool playing = false;
 
 	// some timing data
 	unsigned long counter = 0;
@@ -165,30 +211,10 @@ public:
 
   void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
 
-	// I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version:
-  void _play();  
-	void _pause();
 								 
-	void setLooping(bool l);
-	void setLoops(int l);
-	bool _doneLooping();
-	void setSpeed(float speed);
-	float getSpeed();
-	void setLevel(float level);
 	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 
-	uint32_t playbackLen, playbackStart; // public until we need accessors
-	uint32_t sampleLen, sampleStart;
-
-private:
-  unsigned short volumeLevel = 0;
-
-	// *_fr means a 32-bit fractional value, where 27 bits hold the integer and the remaining 5 bits hold 32nds of an integer
-#define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4, 5
-#define SAMPLEBUFFCURSOR_SCALE  ( 1 << (SAMPLEBUFFCURSOR_FBITS - 1) )  // 1,2,4,8,16
-	volatile int32_t sampleBuffCursor_fr = 0, sampleBuffInc_fr = (1 * SAMPLEBUFFCURSOR_SCALE); // fractional value: 
-																																														 
 };
 
 #endif  // __RP2040AUDIO_H
