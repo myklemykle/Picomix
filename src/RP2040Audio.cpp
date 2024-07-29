@@ -123,16 +123,13 @@ void PWMStreamer::setup_dma_channels(){
 	channel_config_set_transfer_data_size(&wavCtrlChConfig, DMA_SIZE_32);
 	channel_config_set_chain_to(&wavCtrlChConfig, wavDataCh);  // chain to the wav PWM channel when finished.
 
-	// This scheme requires 32 bits of RAM to hold a pointer to our buffer data
+	// NOTE: tBufDataPtr is 32 bits of RAM holding a pointer to our buffer data
 	// that the control DMA can copy to the wave DMA's config, over and over.
-	// That's why bufPtr is a class variable of PWMStreamer instead of a local var:
-	bufPtr = tBuf->data;
-
 	dma_channel_configure(
 		wavCtrlCh,                         // Channel to be configured
 		&wavCtrlChConfig,                  // The configuration we just created
 		&dma_hw->ch[wavDataCh].read_addr,  // Write address (wav PWM channel read address)
-		&bufPtr,                           // Read address (POINTER TO AN ADDRESS) ... contains the address that this DMA writes to the other DMA's read-address.
+		&tBufDataPtr,                      // Read address (POINTER TO A POINTER)
 		1,                                 // transfer 32 bits one time.
 		false                              // Don't start immediately
 	);
@@ -295,7 +292,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	counter++;
 
 	// TODO: get triggered by xferDMA instead?
-	// then check bufPtr here, and swap it, before restarting?
+	// then check tBufDataPtr here, and swap it, before restarting?
 	// in that case we wouldn't need the rewind DMA.
 	//
 	// unloop some math that won't change:

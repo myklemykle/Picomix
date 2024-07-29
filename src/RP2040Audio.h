@@ -65,8 +65,8 @@
 //
 // that's fine for a waveform, but for noise we need a much larger buffer.
 // (It's remarkable how long a white noise sample has to be before you can't detect some
-// looping artifact.  Longer than 2 seconds, for sure.)
 //#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500) 
+// looping artifact.  Longer than 2 seconds, for sure.)
 #define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000) 
 
 // And that's using this much memory:
@@ -101,33 +101,36 @@ typedef AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> TransferBuffe
 #include "hardware/pwm.h"
 
 //////////////
-// The PWMStreamer sets up & manages a pure-hardware stream
+// The PWMStreamer sets up & manages DMA streaming
 // from a memory buffer to a PWM instance.  Once this is 
 // running it consumes no MCU cycles.
 //
 struct PWMStreamer {
+public:
+	PWMStreamer(TransferBuffer &aB){
+		tBuf = &aB;
+		tBufDataPtr = tBuf->data;
+	}
+
+  void init(unsigned char ring, unsigned char loopSlice);
+  void _start();   
+  void _stop(); 
+  bool isStarted();
+
 	unsigned char loopTriggerPWMSlice; // an unused pwm slice that we can make a loop timer from:
+  TransferBuffer *tBuf;
+	
+private:
   int wavDataCh = -1;  // -1 = DMA channel not assigned yet. 
   int wavCtrlCh = -1;
   unsigned int pwmSlice = 0;
 	pwm_config pCfg, tCfg;
 	int dmaTimer;
-	// TODO: for double buffering, bufPtr[2][2]
-  int16_t *bufPtr;
-  TransferBuffer *tBuf;
+  int16_t *tBufDataPtr; // used by DMA control channel to reset DMA data channel
 
-	PWMStreamer(TransferBuffer &aB){
-		tBuf = &aB;
-		bufPtr = tBuf->data;
-	}
-
-  void init(unsigned char ring, unsigned char loopSlice);
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(unsigned char pin);
 	void setup_loop_pwm_slice(unsigned char loopSlice);
-  void _start();   
-  void _stop(); 
-  bool isStarted();
 };
 
 
