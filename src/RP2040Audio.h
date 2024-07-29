@@ -156,8 +156,8 @@ public:
 
 	// NOTE: these ISRs will need binding to the single instance
 	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
-  void __not_in_flash_func(ISR_play)();
-  void __not_in_flash_func(ISR_test)();
+  void ISR_play();
+  void ISR_test();
 
   void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
 
