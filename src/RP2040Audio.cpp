@@ -408,6 +408,50 @@ void RP2040Audio::ISR_test() {
 // In every case it's signed values between -(WAV_PWM_RANGE/2)
 // and WAV_PWM_COUNT
 //
+// fill buffer with value of an arbitrary function across a given range,
+// repeated some number of times.
+//
+
+// this version takes a sample start & length, updating sampleStart & sampleLen
+void AudioBuffer::fillWithFunction(float fStart, float fEnd, const std::function<int(float)> theFunction, float repeats, uint32_t sLen, uint32_t sStart){
+	// If we had exceptions in Arduino, these would be exceptions.
+	// Instead, try to cope with really weird args:
+	while (sStart >= samples)
+		// wrap it
+		sStart -= samples;
+
+	if (sampleStart + sLen > samples)
+		// truncate it
+		sLen = samples - sampleStart;
+
+	if (sLen == 0)
+		// forgetaboutit
+		return;
+
+
+	sampleLen = sLen;
+	sampleStart = sStart;
+	fillWithFunction(fStart, fEnd, theFunction, repeats);
+}
+
+// this version fills between the current values of sampleStart & sampleLen 
+void AudioBuffer::fillWithFunction(float start, float end, const std::function<int(float)> theFunction, float repeats){
+	float deltaX = (end - start)/sampleLen * repeats;
+	float repeatLen = sampleLen / repeats;
+
+	float loopCsr = 0;
+	for (int csr = 0; csr < sampleLen; csr++){
+		loopCsr += 1;
+		while (loopCsr > repeatLen)
+			loopCsr -= repeatLen;
+		float xNow = start + (loopCsr * deltaX);
+		// fill all channels:
+		for (int ch = 0; ch < channels; ch++) {
+			data[sampleStart + csr + ch] = theFunction(xNow);
+		}
+	}
+}
+
 // fill buffer with white noise (signed)
 void AudioBuffer::fillWithNoise(){
 	randomSeed(666);
@@ -416,47 +460,42 @@ void AudioBuffer::fillWithNoise(){
 	}
 }
 
+
 // fill buffer with sine waves
 void AudioBuffer::fillWithSine(uint count, bool positive){
 	const float twoPI = 6.283;
 	const float scale = (WAV_PWM_RANGE) / 2;
+	fillWithFunction(0, twoPI, [=](float x)->int {
+			return static_cast<int>( (
 
-	for (int i=0; i<samples; i+= channels){
-		for(int j=0;j<channels ; j++)
-			data[i + j] = (int) (scale
-					* sin( (float)i * count / (float)samples * twoPI )
-				 ) + (positive ? scale : 0) ; // shift sample to positive? (so the ISR routine doesn't have to)
-	}
+				sin(x) 
+
+			* scale) + (positive ? scale : 0) );
+	}, count, samples);
 }
 
 // fill buffer with square waves
 void AudioBuffer::fillWithSquare(uint count, bool positive){
-	for (int i=0; i<samples; i+= channels)
-		for(int j=0;j<channels; j++)
-		 if ((i*count)%samples < (samples / 2)){
-			 data[i + j] = positive ? WAV_PWM_RANGE : (WAV_PWM_RANGE)/ 2;
-		 } else {
-			 data[i + j] = positive ? 0 : 0 - ((WAV_PWM_RANGE) / 2);
-		 }
+	const float scale = (WAV_PWM_RANGE) / 2;
+	fillWithFunction(0,1, [=](float x)->int {
+			return static_cast<int>( (
+
+				(x >= 0.5 ? -1 : 1)
+
+			* scale) + (positive ? scale : 0) );
+	}, count, samples);
 }
 
 // fill buffer with sawtooth waves running negative to positive
-// (Still slightly buggy ...)
 void AudioBuffer::fillWithSaw(uint count, bool positive){
-	const float twoPI = 6.283;
 	const float scale = (WAV_PWM_RANGE) / 2;
+	fillWithFunction(-1,1, [=](float x)->int {
+			return static_cast<int>( (
 
-	for (int i=0; i<samples; i+= channels){
-		for(int j=0;j<channels; j++)
-			data[i + j] = (int)
+					x
 
-				// i 																																// 0 -> SAMPLE_BUFF_SAMPLES-1
-				// i / (SAMPLE_BUFF_SAMPLES - 1) 																			// 0 -> 1
-				// i * WAV_PWM_RANGE / (SAMPLE_BUFF_SAMPLES -1) 												// 0 -> WAV_PWM_RANGE
-				(i * count * WAV_PWM_RANGE / (samples -1) ) % WAV_PWM_RANGE // 0 -> WAV_PWM_RANGE, count times
-				// (i * count) * WAV_PWM_RANGE / (SAMPLE_BUFF_SAMPLES -1) 							// 0 -> count*WAV_PWM_RANGE
-					- (positive ? 0 : (WAV_PWM_RANGE / 2)) ; // shift to 50% negative?
-	}
+			* scale) + (positive ? scale : 0) );
+	}, count, samples);
 }
 
 // load a raw PCM audio file, which you can create with sox:
@@ -483,11 +522,6 @@ uint32_t AudioBuffer::fillFromRawFile(Stream &f){
 	for (bc = sampleStart; bc<sampleLen; bc++) {
 		data[bc] = data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
-
-	// // Needed? Buggy!
-	// // blank the rest of the buffer
-	// for (bc = sampleLen; bc < TRANSFER_BUFF_SAMPLES; bc++)
-	// 	data[bc++] = 0;
 
 	return sampleLen;
 }

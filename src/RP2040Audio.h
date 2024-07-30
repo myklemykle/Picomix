@@ -88,6 +88,7 @@
 ////////////////
 // Audiobuffer stores channels x samples of audio
 //
+#include <functional>
 struct AudioBuffer {
 	const uint8_t resolution = BYTES_PER_SAMPLE; // bytes per a single channel's sample
 
@@ -105,6 +106,9 @@ struct AudioBuffer {
 
 	uint32_t sampleStart = 0;
 	uint32_t sampleLen;
+
+	void fillWithFunction(float start, float end, const std::function<int(float)> theFunction, float repeats = 1.0);
+	void fillWithFunction(float fStart, float fEnd, const std::function<int(float)> theFunction, float repeats, uint32_t sLen, uint32_t sStart=0);
 
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
