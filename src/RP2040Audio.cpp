@@ -178,25 +178,6 @@ bool PWMStreamer::isStarted() {
 	return dma_channel_is_busy(wavDataCh);
 }
 
-// This gets called once at startup to set up both stereo PWMs for both ports
-void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
-
-	/////////////////////////
-	// set up digital limiter (used by ISR)
-	// interp1 will clamp signed integers to within +/- WAV_PWM_RANGE/2
-	interp_config cfg = interp_default_config();
-	interp_config_set_clamp(&cfg, true);
-	interp_config_set_signed(&cfg, true);
-	interp_set_config(interp1, 0, &cfg);
-
-	interp1->base[0] = 0 - (WAV_PWM_RANGE / 2);;
-	interp1->base[1] = (WAV_PWM_RANGE / 2) -1;
-
-	////////////////////////
-	// set up PWM streaming
-	pwm.init(ring, loopSlice);
-}
-
 void PWMStreamer::_stop(){
 	// abort both data & loop DMAs
 	// disable both audio PWMs and the xfer trigger PWM.
@@ -315,6 +296,31 @@ void AudioCursor::advance(){
 				sampleBuffCursor_fr5 += (playbackEnd_fr5 - playbackStart_fr5);
 				loopCount--;
 		}
+}
+
+
+
+////////////////////////////////////////
+// RP2040Audio object manages all the audio objects in the system,
+// and defines the ISR that pumps them into the txBuf.
+
+// This gets called once at startup to set up PWM
+void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
+
+	/////////////////////////
+	// set up digital limiter (used by ISR)
+	// interp1 will clamp signed integers to within +/- WAV_PWM_RANGE/2
+	interp_config cfg = interp_default_config();
+	interp_config_set_clamp(&cfg, true);
+	interp_config_set_signed(&cfg, true);
+	interp_set_config(interp1, 0, &cfg);
+
+	interp1->base[0] = 0 - (WAV_PWM_RANGE / 2);;
+	interp1->base[1] = (WAV_PWM_RANGE / 2) -1;
+
+	////////////////////////
+	// set up PWM streaming
+	pwm.init(ring, loopSlice);
 }
 
 // This ISR sends a single stereo audio stream to two different outputs on two different PWM slices.
