@@ -225,13 +225,13 @@ void AudioCursor::_pause(){
 
 void AudioCursor::_play(){
 	long c;
-	if (sampleBuffInc_fr5 > 0)  {
+	if (sampleBuffInc_fp5 > 0)  {
 		c = playbackStart;
 	} else {
 		c = min (playbackStart + playbackLen, buf->sampleLen);
 	}
 
-	sampleBuffCursor_fr5 = inttofr5(c);
+	sampleBuffCursor_fp5 = inttofp5(c);
 	playing = true;
 	loopCount = max(1, loops);
 	// Dbg_println("playing");
@@ -251,13 +251,13 @@ void AudioCursor::setSpeed(float speed){
 	if (speed == 0) // no. do not do this.
 		return;
 
-	sampleBuffInc_fr5 = int(inttofr5(speed));
-	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr5);
+	sampleBuffInc_fp5 = int(inttofp5(speed));
+	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fp5);
 }
 
 float AudioCursor::getSpeed(){
-	float speed = fr5tofloat(sampleBuffInc_fr5);
-	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fr5);
+	float speed = fp5tofloat(sampleBuffInc_fp5);
+	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fp5);
 	return speed;
 }
 
@@ -268,32 +268,32 @@ void AudioCursor::setLevel(float level){
 
 void AudioCursor::advance(){
 	// TODO: move this to the spots where start/len change ...
-	int32_t playbackStart_fr5 = inttofr5(playbackStart);
-	int32_t playbackEnd_fr5 = inttofr5(min((playbackStart + playbackLen), buf->sampleLen));
+	int32_t playbackStart_fp5 = inttofp5(playbackStart);
+	int32_t playbackEnd_fp5 = inttofp5(min((playbackStart + playbackLen), buf->sampleLen));
 
-	sampleBuffCursor_fr5 += sampleBuffInc_fr5;
+	sampleBuffCursor_fp5 += sampleBuffInc_fp5;
 
-	// sampleBuffInc_fr5 may be negative
-	if (sampleBuffInc_fr5 > 0)
-		while (sampleBuffCursor_fr5 >= playbackEnd_fr5){
+	// sampleBuffInc_fp5 may be negative
+	if (sampleBuffInc_fp5 > 0)
+		while (sampleBuffCursor_fp5 >= playbackEnd_fp5){
 			if (_doneLooping()) {
 				playing = false;
-				sampleBuffCursor_fr5 = playbackStart_fr5;
+				sampleBuffCursor_fp5 = playbackStart_fp5;
 				//Dbg_println("played.");
 			} else {
-				sampleBuffCursor_fr5 -= (playbackEnd_fr5 - playbackStart_fr5);
+				sampleBuffCursor_fp5 -= (playbackEnd_fp5 - playbackStart_fp5);
 				loopCount--;
 			}
 		}
 
-	if (sampleBuffInc_fr5 < 0)
-		while (sampleBuffCursor_fr5 <= playbackStart_fr5){
+	if (sampleBuffInc_fp5 < 0)
+		while (sampleBuffCursor_fp5 <= playbackStart_fp5){
 			if (_doneLooping()) {
 				playing = false;
-				sampleBuffCursor_fr5 = playbackEnd_fr5;
+				sampleBuffCursor_fp5 = playbackEnd_fp5;
 				//Dbg_println(".deyalp");
 			} else
-				sampleBuffCursor_fr5 += (playbackEnd_fr5 - playbackStart_fr5);
+				sampleBuffCursor_fp5 += (playbackEnd_fp5 - playbackStart_fp5);
 				loopCount--;
 		}
 }
@@ -341,7 +341,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 
 	for (int i = 0; i < transferBuffer.samples; i+=transferBuffer.channels) {
 		// // sanity check:
-		// if (sampleBuffCursor_fr5 < 0)
+		// if (sampleBuffCursor_fp5 < 0)
 		// 	Dbg_println("!preD");
 
 		// get next sample:
@@ -355,7 +355,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			interp1->accum[0] =
 												(short)(
 													(long) (
-														sampleBuffer.data[fr5toint(csr.sampleBuffCursor_fr5)]
+														sampleBuffer.data[fp5toint(csr.sampleBuffCursor_fp5)]
 														 * csr.iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator
