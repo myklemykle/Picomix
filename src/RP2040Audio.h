@@ -197,7 +197,27 @@ private:
 };
 
 class RP2040Audio {
+
+	///////////////////////////////
+	// this section implements the singleton pattern for c++:
+	// https://stackoverflow.com/questions/1008019/how-do-you-implement-the-singleton-design-pattern
 public:
+	static RP2040Audio& onlyInstance(){
+		static RP2040Audio singleGuy;
+		return singleGuy;
+	}
+private:
+	RP2040Audio() {}
+	//RP2040Audio(RP2040Audio const&);    // Don't Implement
+	//void operator=(RP2040Audio const&); // Don't implement
+
+public:
+	RP2040Audio(RP2040Audio const&)     = delete;
+	void operator=(RP2040Audio const&)  = delete;
+	///////////////////////////////
+
+public:
+
   AudioBuffer transferBuffer{TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES};
 	PWMStreamer pwm{transferBuffer};
 
@@ -221,6 +241,8 @@ public:
 								 
 	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
+
+private:
 
 };
 
