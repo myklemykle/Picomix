@@ -149,9 +149,10 @@ private:
 	void setup_loop_pwm_slice(unsigned char loopSlice);
 };
 
+
 ////////////////////
-// *_fp5 means a 27:5 fixed-point value where the bottom 5 bits hold 32nds of an integer
-//
+// fp5_t implements (crudely) a 27:5 fixed-point variable. 
+// The bottom 5 bits hold 32nds of an integer
 
 typedef int32_t fp5_t;
 #define SAMPLEBUFFCURSOR_FBITS 5 					// 1, 2, 3, 4, 5
@@ -159,6 +160,7 @@ typedef int32_t fp5_t;
 #define fp5toint(fp5) (fp5 / SAMPLEBUFFCURSOR_SCALE)
 #define fp5tofloat(fp5) (static_cast< float >(fp5) / static_cast< float >(SAMPLEBUFFCURSOR_SCALE))
 #define inttofp5(i32) (i32 * SAMPLEBUFFCURSOR_SCALE)
+
 
 ///////////////////
 // AudioCursor plays through an AudioBuffer at an adjustable rate & level
