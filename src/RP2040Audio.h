@@ -46,7 +46,8 @@
 #define SAMPLES_PER_CHANNEL 2
 #define BYTES_PER_SAMPLE 2  				
 #define SAMPLE_BUFF_CHANNELS 1 
-#define TRANSFER_BUFF_CHANNELS 2 // because the PWM subsystem wants to deal with stereo pairs, we use 2 stereo txBufs instead of 4 mono ones.
+#define TRANSFER_BUFF_CHANNELS 2 
+	// because the PWM subsystem wants to deal with stereo pairs, we use 2 stereo txBufs instead of 4 mono ones.
 
 // Core1 scales samples from the sample buffer into this buffer,
 // while DMA transfers from this buffer to the PWM.
@@ -87,19 +88,23 @@
 ////////////////
 // Audiobuffer stores channels x samples of audio
 //
-template < const uint8_t c, const long int s >
 struct AudioBuffer {
-	const uint8_t resolution = 2; // bytes per a single channel's sample
+	const uint8_t resolution = BYTES_PER_SAMPLE; // bytes per a single channel's sample
 
-	const uint8_t channels = c; // # of interleaved channels of samples: mono = 1, stereo = 2
-	const long int samples = s;	// number of N-channel samples in this buffer
-	int16_t data[c * s]; 
-	uint32_t sampleStart = 0;
-	uint32_t sampleLen;
+	const uint8_t channels; // # of interleaved channels of samples: mono = 1, stereo = 2
+	const long int samples;	// number of N-channel samples in this buffer
+	int16_t *data; 
+
+	AudioBuffer(uint8_t c, long int s): channels(c), samples(s){
+		data = new int16_t[c * s];
+	}
 
 	inline uint32_t byteLen(){
 		return channels * samples * resolution;
 	}
+
+	uint32_t sampleStart = 0;
+	uint32_t sampleLen;
 
 	void fillWithNoise();
 	void fillWithSine(uint count, bool positive = false);
@@ -108,8 +113,6 @@ struct AudioBuffer {
 	uint32_t fillFromRawFile(Stream &f);
 
 };
-
-typedef AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> TransferBuffer;
 
 #include "hardware/pwm.h"
 
@@ -120,7 +123,7 @@ typedef AudioBuffer<TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES> TransferBuffe
 //
 struct PWMStreamer {
 public:
-	PWMStreamer(TransferBuffer &aB){
+	PWMStreamer(AudioBuffer &aB){
 		tBuf = &aB;
 		tBufDataPtr = tBuf->data;
 	}
@@ -131,7 +134,7 @@ public:
   bool isStarted();
 
 	unsigned char loopTriggerPWMSlice; // an unused pwm slice that we can make a loop timer from:
-  TransferBuffer *tBuf;
+  AudioBuffer *tBuf;
 	
 private:
   int wavDataCh = -1;  // -1 = DMA channel not assigned yet. 
@@ -161,9 +164,12 @@ typedef int32_t fr5_t;
 // AudioCursor plays through an AudioBuffer at an adjustable rate & level
 // It handles play/pause/seek (with wraparound) and looping.
 
-template < const uint8_t channels, const long int samples >
 struct AudioCursor {
-	AudioBuffer<channels, samples> *buf;
+	AudioBuffer *buf;
+	AudioCursor(AudioBuffer &b){
+		buf = &b;
+	};
+
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 
 	volatile fr5_t sampleBuffCursor_fr5 =	inttofr5(0);
@@ -192,11 +198,12 @@ private:
 
 class RP2040Audio {
 public:
-  TransferBuffer transferBuffer;
+  AudioBuffer transferBuffer{TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES};
 	PWMStreamer pwm{transferBuffer};
 
-  AudioBuffer<1, SAMPLE_BUFF_SAMPLES> sampleBuffer;
-	AudioCursor<1, SAMPLE_BUFF_SAMPLES> csr;
+	// RAM buffer for samples loaded from flash
+  AudioBuffer sampleBuffer{1, SAMPLE_BUFF_SAMPLES};
+	AudioCursor csr{sampleBuffer};
 
 	// is the buffer timing being tweaked at the moment?
 	bool tweaking = false;

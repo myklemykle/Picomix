@@ -287,8 +287,8 @@ void AudioCursor::setLevel(float level){
 
 void AudioCursor::advance(){
 	// TODO: move this to the spots where start/len change ...
-	int32_t playbackStart_fr5 = inttofr5(csr.playbackStart);
-	int32_t playbackEnd_fr5 = inttofr5(min((csr.playbackStart + csr.playbackLen), buf->sampleLen));
+	int32_t playbackStart_fr5 = inttofr5(playbackStart);
+	int32_t playbackEnd_fr5 = inttofr5(min((playbackStart + playbackLen), buf->sampleLen));
 
 	sampleBuffCursor_fr5 += sampleBuffInc_fr5;
 
@@ -333,7 +333,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	// unloop some math that won't change:
 	short scaledSample;
 
-	for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS ) {
+	for (int i = 0; i < transferBuffer.samples; i+=transferBuffer.channels) {
 		// // sanity check:
 		// if (sampleBuffCursor_fr5 < 0)
 		// 	Dbg_println("!preD");
@@ -350,7 +350,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 												(short)(
 													(long) (
 														sampleBuffer.data[fr5toint(csr.sampleBuffCursor_fr5)]
-														 * iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
+														 * csr.iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator
 												)
@@ -360,7 +360,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		}
 
 		// put that sample in both channels of both outputs:
-		for (int j=0;j<TRANSFER_BUFF_CHANNELS;j++)
+		for (int j=0;j<transferBuffer.channels;j++)
 			transferBuffer.data[i+j] = scaledSample;
 
 		csr.advance();
@@ -403,8 +403,7 @@ void RP2040Audio::ISR_test() {
 // and WAV_PWM_COUNT
 //
 // fill buffer with white noise (signed)
-template < const uint8_t channels, const long int samples >
-void AudioBuffer<channels, samples>::fillWithNoise(){
+void AudioBuffer::fillWithNoise(){
 	randomSeed(666);
 	for(int i=0; i<(channels * samples); i++){
 		data[i] = random(WAV_PWM_RANGE) - (WAV_PWM_RANGE / 2);
@@ -412,8 +411,7 @@ void AudioBuffer<channels, samples>::fillWithNoise(){
 }
 
 // fill buffer with sine waves
-template < const uint8_t channels, const long int samples >
-void AudioBuffer<channels, samples>::fillWithSine(uint count, bool positive){
+void AudioBuffer::fillWithSine(uint count, bool positive){
 	const float twoPI = 6.283;
 	const float scale = (WAV_PWM_RANGE) / 2;
 
@@ -426,8 +424,7 @@ void AudioBuffer<channels, samples>::fillWithSine(uint count, bool positive){
 }
 
 // fill buffer with square waves
-template < const uint8_t channels, const long int samples >
-void AudioBuffer<channels, samples>::fillWithSquare(uint count, bool positive){
+void AudioBuffer::fillWithSquare(uint count, bool positive){
 	for (int i=0; i<samples; i+= channels)
 		for(int j=0;j<channels; j++)
 		 if ((i*count)%samples < (samples / 2)){
@@ -439,8 +436,7 @@ void AudioBuffer<channels, samples>::fillWithSquare(uint count, bool positive){
 
 // fill buffer with sawtooth waves running negative to positive
 // (Still slightly buggy ...)
-template < const uint8_t channels, const long int samples >
-void AudioBuffer<channels, samples>::fillWithSaw(uint count, bool positive){
+void AudioBuffer::fillWithSaw(uint count, bool positive){
 	const float twoPI = 6.283;
 	const float scale = (WAV_PWM_RANGE) / 2;
 
@@ -460,73 +456,42 @@ void AudioBuffer<channels, samples>::fillWithSaw(uint count, bool positive){
 // load a raw PCM audio file, which you can create with sox:
 //       sox foo.wav foo.raw
 // assuming foo.raw contains signed 16-bit samples
-template < const uint8_t channels, const long int samples >
-void AudioBuffer<channels, samples>::fillFromRawFile(Stream &f){
+uint32_t AudioBuffer::fillFromRawFile(Stream &f){
 	uint32_t bc; // buffer cursor
 	// loading 16-bit data 8 bits at a time ...
-	//uint32_t length = f.readBytes((char *)sampleBuffer.data, SAMPLE_BUFF_BYTES);
 	uint32_t length = f.readBytes((char *)data, byteLen());
 	if (length<=0){
 		Dbg_println("read failure");
-		return;
+		return length;
 	}
 
 	if (length==byteLen()){
 		Dbg_println("sample truncated");
 	}
 
+	sampleStart = 0;
 	// convert it to length in samples
-	sampleLen = length / sampleBuffer.resolution;
+	sampleLen = length / resolution;
 
 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
-	sampleStart = playbackStart = 0;
 	for (bc = sampleStart; bc<sampleLen; bc++) {
-		sampleBuffer.data[bc] = sampleBuffer.data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
+		data[bc] = data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
 
-	// Needed?
-	// blank the rest of the buffer
-	for (bc = sampleLen; bc < TRANSFER_BUFF_SAMPLES; bc++)
-		data[bc++] = 0;
+	// // Needed? Buggy!
+	// // blank the rest of the buffer
+	// for (bc = sampleLen; bc < TRANSFER_BUFF_SAMPLES; bc++)
+	// 	data[bc++] = 0;
 
 	return sampleLen;
 }
 
 uint32_t AudioCursor::fillFromRawFile(Stream &f){
-	playbackLen = csr.fillFromRawFile(f);
+	playbackLen = buf->fillFromRawFile(f);
+	playbackStart = buf->sampleStart; // probably 0
 	return playbackLen;
 }
 
-// void RP2040Audio::fillFromRawFile(Stream &f){
-// 	uint32_t bc; // buffer cursor
-// 	// loading 16-bit data 8 bits at a time ...
-// 	//uint32_t length = f.readBytes((char *)sampleBuffer.data, SAMPLE_BUFF_BYTES);
-// 	uint32_t length = f.readBytes((char *)sampleBuffer.data, sampleBuffer.byteLen());
-// 	if (length<=0){
-// 		Dbg_println("read failure");
-// 		return;
-// 	}
-//
-// 	if (length==sampleBuffer.byteLen()){
-// 		Dbg_println("sample truncated");
-// 	}
-//
-// 	// convert it to length in samples
-// 	length = length / sampleBuffer.resolution;
-//
-// 	// Now shift those (presumably) signed-16-bit samples down to our output sample width
-// 	sampleStart = playbackStart = 0;
-// 	for (bc = sampleStart; bc<length; bc++) {
-// 		sampleBuffer.data[bc] = sampleBuffer.data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
-// 	}
-//
-// 	// Needed?
-// 	// blank the rest of the buffer
-// 	for (bc = length; bc < TRANSFER_BUFF_SAMPLES; bc++)
-// 		sampleBuffer.data[bc++] = 0;
-//
-// 	sampleLen = playbackLen = length;
-// }
 
 // PWM timing adjustment utility.
 // One can use this, along with a scope, to experimentally determine the appropriate
