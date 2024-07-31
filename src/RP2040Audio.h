@@ -11,10 +11,10 @@
 #define MCU_MHZ 133
 #endif
 
-#define WAV_PWM_SCALE 1                             // the tradeoff btwn bit depth & sample rate. 1 = 10 bit, 2 = 11 bit ... 
-                                                    // 10-bit audio has the advantage that the PWM output rate is up at 130khz, 
-                                                    // which means that the HF noise is really getting well-suppressed. 
-                                                    // With 12-bit audio, that noise is getting down into the almost-audible 
+#define WAV_PWM_SCALE 1                             // the tradeoff btwn bit depth & sample rate. 1 = 10 bit, 2 = 11 bit ...
+                                                    // 10-bit audio has the advantage that the PWM output rate is up at 130khz,
+                                                    // which means that the HF noise is really getting well-suppressed.
+                                                    // With 12-bit audio, that noise is getting down into the almost-audible
                                                     // spectrum, so output filtering is more crucial.
 #define WAV_PWM_BITS (WAV_PWM_SCALE + 9)
 #define WAV_PWM_RANGE (1024 * WAV_PWM_SCALE)
@@ -35,7 +35,7 @@
 // To match that on the loop timing PWM, we need it to loop every clocks-per-window, which is TRANSFER_WINDOW_XFERS * clocks-per-sample
 // However we can only express the numerator in 8 bits and the denoinator in 4!
 // But the PWM counter effectively multiplies the PWM clock divider in our situation.
-// Helpfully, 21111 == 227 * 93 
+// Helpfully, 21111 == 227 * 93
 #define LOOP_PWM_COUNT 93 * TRANSFER_WINDOW_XFERS
 #define LOOP_PWM_NUM 227
 #define LOOP_PWM_DEN 7
@@ -45,8 +45,8 @@
 
 #define SAMPLES_PER_CHANNEL 2
 #define BYTES_PER_SAMPLE 2  				
-#define SAMPLE_BUFF_CHANNELS 1 
-#define TRANSFER_BUFF_CHANNELS 2 
+#define SAMPLE_BUFF_CHANNELS 1
+#define TRANSFER_BUFF_CHANNELS 2
 	// because the PWM subsystem wants to deal with stereo pairs, we use 2 stereo txBufs instead of 4 mono ones.
 
 // Core1 scales samples from the sample buffer into this buffer,
@@ -55,18 +55,18 @@
 																 // NOTE: when this was 80, the resulting PWM frequency was in hearing range & faintly audible in some situations.
 #define TRANSFER_SAMPLES ( 4 / BYTES_PER_SAMPLE ) // == 2; 32 bits is two samples per transfer
 #define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_SAMPLES ) // size in uint_16 samples
-																																 
+																																
 // IMPORTANT:
-// SAMPLE_BUFF_SAMPLES must be a multiple of TRANSFER_WINDOW_XFERS, because the ISR only 
+// SAMPLE_BUFF_SAMPLES must be a multiple of TRANSFER_WINDOW_XFERS, because the ISR only
 // checks for overrun once per TRANSFER_WINDOW_XFERS.  (For efficiency.)
 //
 //#define SAMPLE_BUFF_SAMPLES 	( TRANSFER_WINDOW_XFERS * (320 / WAV_PWM_SCALE) )
 //
 // that's fine for a waveform, but for noise we need a much larger buffer.
 // (It's remarkable how long a white noise sample has to be before you can't detect some
-//#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500) 
+//#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500)
 // looping artifact.  Longer than 2 seconds, for sure.)
-#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000) 
+#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000)
 
 // And that's using this much memory:
 // #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
@@ -94,7 +94,7 @@ struct AudioBuffer {
 
 	const uint8_t channels; // # of interleaved channels of samples: mono = 1, stereo = 2
 	const long int samples;	// number of N-channel samples in this buffer
-	int16_t *data; 
+	int16_t *data;
 
 	AudioBuffer(uint8_t c, long int s): channels(c), samples(s){
 		data = new int16_t[c * s];
@@ -122,7 +122,7 @@ struct AudioBuffer {
 
 //////////////
 // The PWMStreamer sets up & manages DMA streaming
-// from a memory buffer to a PWM instance.  Once this is 
+// from a memory buffer to a PWM instance.  Once this is
 // running it consumes no MCU cycles.
 //
 struct PWMStreamer {
@@ -133,17 +133,17 @@ public:
 	}
 
   void init(unsigned char ring, unsigned char loopSlice);
-  void _start();   
-  void _stop(); 
+  void _start();
+  void _stop();
   bool isStarted();
 
 	unsigned char loopTriggerPWMSlice; // an unused pwm slice that we can make a loop timer from:
   AudioBuffer *tBuf;
 	
-private:
-  int wavDataCh = -1;  // -1 = DMA channel not assigned yet. 
+  int wavDataCh = -1;  // -1 = DMA channel not assigned yet.
   int wavCtrlCh = -1;
   unsigned int pwmSlice = 0;
+private:
 	pwm_config pCfg, tCfg;
 	int dmaTimer;
   int16_t *tBufDataPtr; // used by DMA control channel to reset DMA data channel
@@ -155,7 +155,7 @@ private:
 
 
 ////////////////////
-// fp5_t implements (crudely) a 27:5 fixed-point variable. 
+// fp5_t implements (crudely) a 27:5 fixed-point variable.
 // The bottom 5 bits hold 32nds of an integer
 
 typedef int32_t fp5_t;
@@ -179,7 +179,7 @@ struct AudioCursor {
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 
 	volatile fp5_t sampleBuffCursor_fp5 =	inttofp5(0);
-	volatile fp5_t sampleBuffInc_fp5 = 		inttofp5(1); // fractional value: 
+	volatile fp5_t sampleBuffInc_fp5 = 		inttofp5(1); // fractional value:
 																																														 //
 	bool looping = true;
 	int loops = -1;
@@ -188,7 +188,7 @@ struct AudioCursor {
 
 	uint32_t fillFromRawFile(Stream &f);
 	// I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version:
-  void _play();  
+  void _play();
 	void _pause();
 	void setLooping(bool l);
 	void setLoops(int l);
@@ -199,7 +199,7 @@ struct AudioCursor {
 	void advance();
 	uint32_t playbackLen, playbackStart; // public until we need accessors
 private:
-																																														 
+
 };
 
 class RP2040Audio {
@@ -235,7 +235,7 @@ public:
 	bool tweaking = false;
 
 	// some timing data
-	unsigned long counter = 0;
+	unsigned long ISRcounter = 0;
 
 	// NOTE: these ISRs will need binding to the single instance
 	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
@@ -244,7 +244,7 @@ public:
 
   void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
 
-								 
+								
 	void fillFromRawFile(Stream &f);
   void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 

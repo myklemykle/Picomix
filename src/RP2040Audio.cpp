@@ -38,6 +38,7 @@ void PWMStreamer::setup_audio_pwm_slice(unsigned char pin){
 	pwm_set_counter(pwmSlice, 0);
 }
 
+// db refac part 1: double the loop PWM rate ...
 void PWMStreamer::setup_loop_pwm_slice(unsigned char loopSlice){
 
 	loopTriggerPWMSlice = loopSlice;
@@ -54,7 +55,11 @@ void PWMStreamer::setup_loop_pwm_slice(unsigned char loopSlice){
 	tCfg = pwm_get_default_config();
 
 	// HACK: now playing back at 1/3 speed, which is close-ish to a 44.1khz sample rate
-	pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
+	// pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT);
+
+	// db refac: double the PWM rate
+	pwm_config_set_wrap(&tCfg, WAV_PWM_COUNT / 2);
+
 	pwm_config_set_clkdiv(&tCfg, TRANSFER_WINDOW_XFERS * 3);
 
 	// instead:
@@ -174,7 +179,7 @@ bool PWMStreamer::isStarted() {
 	//
 	// In the unlikely event we hit the reset window with the last check,
 	// I hope this next check will still spot a busy channel.
-	
+
 	return dma_channel_is_busy(wavDataCh);
 }
 
@@ -202,7 +207,7 @@ void PWMStreamer::_start() {
 
 	pwm_init(loopTriggerPWMSlice, &tCfg, false);
 	pwm_set_counter(loopTriggerPWMSlice, 28);
-	
+
 	/**********************/
 	/* Start WAV PWM DMA. */
 	/**********************/
@@ -328,18 +333,30 @@ void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
 void __not_in_flash_func(RP2040Audio::ISR_play)() {
+	static void *halfwayThroughTxBuffer = &transferBuffer.data[transferBuffer.samples / 2]; // TO FIX: glossing over non-even buffer size for now
+	int txStartIdx, txEndIdx;
+	short scaledSample;
+
 	pwm_clear_irq(pwm.loopTriggerPWMSlice);
 
-	counter++;
+	ISRcounter++;
+
+	// db refac: since we're triggered twice, write to just the half of the buffer that we're not DMAing from atm.
+	void *currentPosition = (void*)dma_hw->ch[pwm.wavDataCh].read_addr;
+
+	if ( currentPosition > halfwayThroughTxBuffer ) {
+		txStartIdx = transferBuffer.samples / 2;
+		txEndIdx = transferBuffer.samples;
+	} else {
+		txStartIdx = 0;
+		txEndIdx = transferBuffer.samples / 2;
+	}
 
 	// TODO: get triggered by xferDMA instead?
 	// then check tBufDataPtr here, and swap it, before restarting?
 	// in that case we wouldn't need the rewind DMA.
-	//
-	// unloop some math that won't change:
-	short scaledSample;
 
-	for (int i = 0; i < transferBuffer.samples; i+=transferBuffer.channels) {
+	for (int i = txStartIdx; i < txEndIdx; i+=transferBuffer.channels) {
 		// // sanity check:
 		// if (sampleBuffCursor_fp5 < 0)
 		// 	Dbg_println("!preD");
@@ -347,9 +364,9 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		// get next sample:
 		if (!csr.playing){
 			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
-																				
+
 		} else {
-			
+
 			// Since amplitude can go over max, use interpolator #1 in clamp mode
 			// to hard-limit the signal.
 			interp1->accum[0] =
@@ -365,7 +382,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			scaledSample = interp1->peek[0] + (WAV_PWM_RANGE / 2); // shift to positive
 		}
 
-		// put that sample in both channels of both outputs:
+		// put that sample in both channels
 		for (int j=0;j<transferBuffer.channels;j++)
 			transferBuffer.data[i+j] = scaledSample;
 
