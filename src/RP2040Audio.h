@@ -129,7 +129,10 @@ struct PWMStreamer {
 public:
 	PWMStreamer(AudioBuffer &aB){
 		tBuf = &aB;
-		tBufDataPtr = tBuf->data;
+		// point to the start of the first half of the buffer
+		tBufDataPtr[0] = tBuf->data;
+		// point to the start of the second half
+		tBufDataPtr[1] = &(tBuf->data[tBuf->samples / 2]);
 	}
 
   void init(unsigned char ring, unsigned char loopSlice);
@@ -140,13 +143,13 @@ public:
 	unsigned char loopTriggerPWMSlice; // an unused pwm slice that we can make a loop timer from:
   AudioBuffer *tBuf;
 	
-  int wavDataCh = -1;  // -1 = DMA channel not assigned yet.
-  int wavCtrlCh = -1;
+  int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet.
+  int wavCtrlCh[2] = {-1, -1};
   unsigned int pwmSlice = 0;
 private:
 	pwm_config pCfg, tCfg;
 	int dmaTimer;
-  int16_t *tBufDataPtr; // used by DMA control channel to reset DMA data channel
+  int16_t *tBufDataPtr[2]; // used by DMA control channel to reset DMA data channel
 
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(unsigned char pin);

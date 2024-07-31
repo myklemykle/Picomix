@@ -11,6 +11,7 @@
 //
 //
 
+#define SDEBUG
 #include "dbg_macros.h"
 
 #include "Arduino.h" // for Serial
@@ -20,6 +21,8 @@
 #include "hardware/dma.h"
 #include "hardware/interp.h"
 #include "RP2040Audio.h"
+
+#define iTWICE (i=0;i<2;i++)
 
 void PWMStreamer::setup_audio_pwm_slice(unsigned char pin){
 	pwmSlice = pwm_gpio_to_slice_num(pin);
@@ -75,6 +78,7 @@ void PWMStreamer::setup_loop_pwm_slice(unsigned char loopSlice){
 // ALERT: This methods assumes you've already set up the pwm slices
 void PWMStreamer::setup_dma_channels(){
   dma_channel_config wavDataChConfig, wavCtrlChConfig;
+	int i;
 
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
 	dmaTimer = dma_claim_unused_timer(true /* required */);
@@ -82,60 +86,69 @@ void PWMStreamer::setup_dma_channels(){
 	//dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
 	//dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
 
-	if (wavDataCh < 0) {  // if uninitialized
-		Dbg_println("getting dma");
-		Dbg_flush();
-		wavDataCh = dma_claim_unused_channel(true);
+	// get some DMA channels:
+	for iTWICE {
+		if (wavDataCh[i] < 0) {  // if uninitialized
+			Dbg_println("getting dma");
+			wavDataCh[i] = dma_claim_unused_channel(true);
+			Dbg_printf("pwm dma channel %d= %d\n", i, wavDataCh[i]);
+		}
 	}
-	if (wavCtrlCh < 0) {  // if uninitialized
-		Dbg_println("getting dma");
-		Dbg_flush();
-		wavCtrlCh = dma_claim_unused_channel(true);
+	for iTWICE {
+		if (wavCtrlCh[i] < 0) {  // if uninitialized
+			Dbg_println("getting dma");
+			wavCtrlCh[i] = dma_claim_unused_channel(true);
+			Dbg_printf("loop dma channel %d = %d\n", i, wavCtrlCh[i]);
+		}
 	}
 
-	// Dbg_printf("pwm dma channel %d\n", wavDataCh);
-	// Dbg_printf("loop dma channel %d\n", wavCtrlCh);
 
-	/****************************************************/
-	/* Configure data DMA to copy samples from xferbuff to PWM */
-	/****************************************************/
-	wavDataChConfig = dma_channel_get_default_config(wavDataCh);
-	channel_config_set_read_increment(&wavDataChConfig, true);
-	channel_config_set_write_increment(&wavDataChConfig, false);
-	channel_config_set_transfer_data_size(&wavDataChConfig, DMA_SIZE_32);     // 32 bytes at a time (l & r 16-bit samples)
+	for iTWICE {
+		/****************************************************/
+		/* Configure data DMA to copy samples from xferbuff to PWM */
+		/****************************************************/
+		wavDataChConfig = dma_channel_get_default_config(wavDataCh[i]);
+		channel_config_set_read_increment(&wavDataChConfig, true);
+		channel_config_set_write_increment(&wavDataChConfig, false);
+		channel_config_set_transfer_data_size(&wavDataChConfig, DMA_SIZE_32);     // 32 bytes at a time (l & r 16-bit samples)
 
-	int treq = dma_get_timer_dreq(dmaTimer);
-	channel_config_set_dreq(&wavDataChConfig, treq);
-	channel_config_set_chain_to(&wavDataChConfig, wavCtrlCh);           // chain to the loop-control channel when finished.
-	dma_channel_configure(
-		wavDataCh,                                                  // channel to config
-		&wavDataChConfig,                                           // this configuration
-		(void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice)),  // write to pwm channel (pwm structures are 0x14 bytes wide)
-		tBuf->data,                                        // read from here (this value will be overwritten if we start the other loop first)
-		TRANSFER_BUFF_SAMPLES / 2,                         // transfer exactly (samples/2) times (cuz 2 samples per transfer)
-																											 // TODO: when double-buffering, divide that by 2 again.
-		false);
+		int treq = dma_get_timer_dreq(dmaTimer);
+		channel_config_set_dreq(&wavDataChConfig, treq);
+		channel_config_set_chain_to(&wavDataChConfig, wavCtrlCh[i]);      // chain to the loop-control channel when finished.
+		dma_channel_configure(
+			wavDataCh[i],                                               // channel to config
+			&wavDataChConfig,                                           // this configuration
+			(void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice)),  // write to pwm channel (pwm structures are 0x14 bytes wide)
+			//tBuf->data,                                        // read from here (this value will be overwritten if we start the other loop first)
+			// (i == 0) ? tBuf->data : &tBuf->data[tBuf->samples / 2],    // read from here (this value will be overwritten if we start the other loop first)
+			tBufDataPtr[i],
+			//TRANSFER_BUFF_SAMPLES / 2,                         // transfer exactly (samples/2) times (cuz 2 samples per transfer)
+			TRANSFER_BUFF_SAMPLES / 4,                         // when double-buffering, divide that by 2 again.
+			false                              // Don't start immediately
+		);
+	}
 
 
-	// configure loop DMA channel, which resets the WAV DMA channel start address, then chains to it.
-	// ( https://vanhunteradams.com/Pico/DAC/DMA_DAC.html )
+		// configure loop DMA channel, which resets the WAV DMA channel start address, then chains to it.
+		// ( https://vanhunteradams.com/Pico/DAC/DMA_DAC.html )
+ for iTWICE {
+		wavCtrlChConfig = dma_channel_get_default_config(wavCtrlCh[0]);
+		channel_config_set_read_increment(&wavCtrlChConfig, false);
+		channel_config_set_write_increment(&wavCtrlChConfig, false);
+		channel_config_set_transfer_data_size(&wavCtrlChConfig, DMA_SIZE_32);
+		channel_config_set_chain_to(&wavCtrlChConfig, (i == 0) ? wavDataCh[1] : wavDataCh[0]);  // chain to the wav PWM channel when finished.
 
-	wavCtrlChConfig = dma_channel_get_default_config(wavCtrlCh);
-	channel_config_set_read_increment(&wavCtrlChConfig, false);
-	channel_config_set_write_increment(&wavCtrlChConfig, false);
-	channel_config_set_transfer_data_size(&wavCtrlChConfig, DMA_SIZE_32);
-	channel_config_set_chain_to(&wavCtrlChConfig, wavDataCh);  // chain to the wav PWM channel when finished.
-
-	// NOTE: tBufDataPtr is 32 bits of RAM holding a pointer to our buffer data
-	// that the control DMA can copy to the wave DMA's config, over and over.
-	dma_channel_configure(
-		wavCtrlCh,                         // Channel to be configured
-		&wavCtrlChConfig,                  // The configuration we just created
-		&dma_hw->ch[wavDataCh].read_addr,  // Write address (wav PWM channel read address)
-		&tBufDataPtr,                      // Read address (POINTER TO A POINTER)
-		1,                                 // transfer 32 bits one time.
-		false                              // Don't start immediately
-	);
+		// NOTE: tBufDataPtr is 32 bits of RAM holding a pointer to our buffer data
+		// that the control DMA can copy to the wave DMA's config, over and over.
+		dma_channel_configure(
+			wavCtrlCh[i],                         // Channel to be configured
+			&wavCtrlChConfig,                  // The configuration we just created
+			&dma_hw->ch[wavDataCh[i]].read_addr,  // Write address (wav PWM channel read address)
+			&tBufDataPtr[i],                      // Read address (POINTER TO A POINTER)
+			1,                                 // transfer 32 bits one time.
+			false                              // Don't start immediately
+		);
+	}
 }
 
 void PWMStreamer::init(unsigned char ring, unsigned char loopSlice) {
@@ -150,7 +163,9 @@ void PWMStreamer::init(unsigned char ring, unsigned char loopSlice) {
 }
 
 bool PWMStreamer::isStarted() {
-	if (dma_channel_is_busy(wavDataCh))
+	if (dma_channel_is_busy(wavDataCh[0]))
+		return true;
+	if (dma_channel_is_busy(wavDataCh[1]))
 		return true;
 
 	// Problem:
@@ -178,14 +193,22 @@ bool PWMStreamer::isStarted() {
 	// In the unlikely event we hit the reset window with the last check,
 	// I hope this next check will still spot a busy channel.
 
-	return dma_channel_is_busy(wavDataCh);
+	if (dma_channel_is_busy(wavDataCh[0]))
+		return true;
+	if (dma_channel_is_busy(wavDataCh[1]))
+		return true;
+
+	return false;
 }
 
 void PWMStreamer::_stop(){
+	int i;
 	// abort both data & loop DMAs
 	// disable both audio PWMs and the xfer trigger PWM.
-	dma_channel_abort(wavDataCh);
-	dma_channel_abort(wavDataCh);
+	for iTWICE {
+		dma_channel_abort(wavDataCh[i]);
+		dma_channel_abort(wavDataCh[i]);
+	}
 	pwm_set_enabled(pwmSlice, false);
 	// // .. once everything is off, we can pause the trigger slice.
 	// pwm_set_mask_enabled(pwm_hw->en & ~(1 << pwmSlice) & ~(1 << loopTriggerPWMSlice));
@@ -209,7 +232,7 @@ void PWMStreamer::_start() {
 	/**********************/
 	/* Start WAV PWM DMA. */
 	/**********************/
-	dma_start_channel_mask(1 << wavCtrlCh);
+	dma_start_channel_mask(1 << wavCtrlCh[1]);
 	Dbg_println("dma channels started");
 
 	// start the signal PWM and the xfer trigger PWM
@@ -331,6 +354,7 @@ void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
 void __not_in_flash_func(RP2040Audio::ISR_play)() {
+	// NOTE: same as tBufDataPtr
 	static void *halfwayThroughTxBuffer = &transferBuffer.data[transferBuffer.samples / 2]; // TO FIX: glossing over non-even buffer size for now
 	int txStartIdx, txEndIdx;
 	short scaledSample;
@@ -340,9 +364,12 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	ISRcounter++;
 
 	// db refac: since we're triggered twice, write to just the half of the buffer that we're not DMAing from atm.
-	void *currentPosition = (void*)dma_hw->ch[pwm.wavDataCh].read_addr;
+	//void *currentPosition = (void*)dma_hw->ch[pwm.wavDataCh].read_addr;
 
-	if ( currentPosition > halfwayThroughTxBuffer ) {
+	//if ( currentPosition > halfwayThroughTxBuffer ) {
+	// if ch 0 is busy streaming the first half, update the second half:
+	//if (dma_hw->ch[pwm.wavDataCh[0]].ctrl.busy) {
+	if (dma_channel_is_busy(pwm.wavDataCh[0])) {
 		txStartIdx = transferBuffer.samples / 2;
 		txEndIdx = transferBuffer.samples;
 	} else {
