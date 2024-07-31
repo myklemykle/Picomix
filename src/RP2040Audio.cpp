@@ -70,8 +70,6 @@ void PWMStreamer::setup_loop_pwm_slice(unsigned char loopSlice){
 	pwm_set_irq_enabled(loopTriggerPWMSlice, true);
 	irq_set_enabled(PWM_IRQ_WRAP, true);
 
-	// give the buffer writes a head start on the DMA reads. see tweak() for explanation of the magic number 28.
-	pwm_set_counter(loopTriggerPWMSlice, 28);
 }
 
 // ALERT: This methods assumes you've already set up the pwm slices
