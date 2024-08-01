@@ -146,10 +146,10 @@ public:
   int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet.
   int wavCtrlCh[2] = {-1, -1};
   unsigned int pwmSlice = 0;
+  int16_t *tBufDataPtr[2]; // used by DMA control channel to reset DMA data channel
 private:
 	pwm_config pCfg, tCfg;
 	int dmaTimer;
-  int16_t *tBufDataPtr[2]; // used by DMA control channel to reset DMA data channel
 
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(unsigned char pin);
@@ -234,18 +234,19 @@ public:
   AudioBuffer sampleBuffer{1, SAMPLE_BUFF_SAMPLES};
 	AudioCursor csr{sampleBuffer};
 
+  void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
+
 	// is the buffer timing being tweaked at the moment?
 	bool tweaking = false;
 
 	// some timing data
-	unsigned long ISRcounter = 0;
+	volatile unsigned long ISRcounter = 0;
 
 	// NOTE: these ISRs will need binding to the single instance
 	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
   void ISR_play();
   void ISR_test();
 
-  void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
 
 								
 	void fillFromRawFile(Stream &f);
