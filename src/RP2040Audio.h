@@ -135,7 +135,7 @@ public:
 		tBufDataPtr[1] = &(tBuf->data[tBuf->samples / 2]);
 	}
 
-  void init(unsigned char ring, unsigned char loopSlice);
+  void init(unsigned char ring);
   void _start();
   void _stop();
   bool isStarted();
@@ -216,13 +216,19 @@ private:
 	RP2040Audio() {}
 	//RP2040Audio(RP2040Audio const&);    // Don't Implement
 	//void operator=(RP2040Audio const&); // Don't implement
+	// NOTE: these ISRs will need binding to the single instance
+	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
 
 public:
 	RP2040Audio(RP2040Audio const&)     = delete;
 	void operator=(RP2040Audio const&)  = delete;
+	//
+	// end singleton section
 	///////////////////////////////
 
 public:
+	void start();
+	void stop();
 
   AudioBuffer transferBuffer{TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES};
 	PWMStreamer pwm{transferBuffer};
@@ -231,25 +237,18 @@ public:
   AudioBuffer sampleBuffer{1, SAMPLE_BUFF_SAMPLES};
 	AudioCursor csr{sampleBuffer};
 
-  void init(unsigned char ring, unsigned char loopSlice);  // allocate & configure one PWM instance & suporting DMA channels
-
-	// is the buffer timing being tweaked at the moment?
-	bool tweaking = false;
+  void init(unsigned char ring);  // allocate & configure one PWM instance & suporting DMA channels
 
 	// some timing data
 	volatile unsigned long ISRcounter = 0;
 
-	// NOTE: these ISRs will need binding to the single instance
-	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
-  void ISR_play();
-  void ISR_test();
+	void enableISR(bool on);
 
-
-								
 	void fillFromRawFile(Stream &f);
-  void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
+  //void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 
 private:
+  static void ISR_play();
 
 };
 

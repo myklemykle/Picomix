@@ -1,15 +1,5 @@
-// RP2040Audio learns from two codebases:
-//
-// Basic PWM audio configuation:
-// PicoRecPlayAudio - Raspberry Pi Pico Audio Record/Playbak/WAV File
-// Copyright (C) 2022 Jason Birch
-//
-// DMA audio playback strategy (frees the CPU for other tasks):
-// https://vanhunteradams.com/Pico/DAC/DMA_DAC.html
-//
-// Thanks Jason! Thanks Van!
-//
-//
+// TODO: license/intro
+
 
 #define SDEBUG
 #include "dbg_macros.h"
@@ -89,7 +79,7 @@ void PWMStreamer::setup_dma_channels(){
 
 }
 
-void PWMStreamer::init(unsigned char ring, unsigned char loopSlice) {
+void PWMStreamer::init(unsigned char ring) {
 	///////////////////
 	// Set up PWM 
 	setup_audio_pwm_slice(ring); // Enable PWM assigned to pins { ring, ring+1 }
@@ -265,7 +255,7 @@ void AudioCursor::advance(){
 // and defines the ISR that pumps them into the txBuf.
 
 // This gets called once at startup to set up PWM
-void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
+void RP2040Audio::init(unsigned char ring) {
 
 	/////////////////////////
 	// set up digital limiter (used by ISR)
@@ -280,8 +270,28 @@ void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
 
 	////////////////////////
 	// set up PWM streaming
-	pwm.init(ring, loopSlice);
+	pwm.init(ring);
+	
+	// install ISR
+	irq_set_exclusive_handler(DMA_IRQ_1, ISR_play);
+}
 
+void RP2040Audio::start(){
+	enableISR(true);
+	pwm._start();
+}
+
+void RP2040Audio::stop(){
+	pwm._stop();
+	enableISR(false);
+}
+
+void RP2040Audio::enableISR(bool on){
+	if (on) {
+		irq_set_enabled(DMA_IRQ_1, true);
+	} else {
+		irq_set_enabled(DMA_IRQ_1, false);
+	}
 }
 
 // This ISR sends a single stereo audio stream to two different outputs on two different PWM slices.
@@ -289,37 +299,38 @@ void RP2040Audio::init(unsigned char ring, unsigned char loopSlice) {
 // then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
 // which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
 void __not_in_flash_func(RP2040Audio::ISR_play)() {
+	static auto &my = onlyInstance();
 	int txStartIdx, txEndIdx;
-	static int txHalfwayIdx = transferBuffer.samples / 2;
+	static int txHalfwayIdx = my.transferBuffer.samples / 2;
 	int idleChannel;
 	short scaledSample;
-	static uint16_t ch0mask = 1u << pwm.wavDataCh[0];
-	static uint16_t ch1mask = 1u << pwm.wavDataCh[1];
+	static uint16_t ch0mask = 1u << my.pwm.wavDataCh[0];
+	static uint16_t ch1mask = 1u << my.pwm.wavDataCh[1];
 
-	ISRcounter++;
+	my.ISRcounter++;
 
 	// write to the half of the buffer that we're not DMAing from ATM
-	if (dma_channel_is_busy(pwm.wavDataCh[0])) {
+	if (dma_channel_is_busy(my.pwm.wavDataCh[0])) {
 		idleChannel = 1;
 	} else {
 		idleChannel = 0;
 	}
 
 	// reset idle channel DMA
-	dma_channel_acknowledge_irq1(pwm.wavDataCh[idleChannel]);
-	dma_channel_set_read_addr(pwm.wavDataCh[idleChannel], pwm.tBufDataPtr[idleChannel], false);
+	dma_channel_acknowledge_irq1(my.pwm.wavDataCh[idleChannel]);
+	dma_channel_set_read_addr(my.pwm.wavDataCh[idleChannel], my.pwm.tBufDataPtr[idleChannel], false);
 
 	// fill idle channel buffer
 	txStartIdx = (idleChannel ? 0 : txHalfwayIdx);
-	txEndIdx = (idleChannel ? txHalfwayIdx : transferBuffer.samples);
+	txEndIdx = (idleChannel ? txHalfwayIdx : my.transferBuffer.samples);
 
-	for (int i = txStartIdx; i < txEndIdx; i+=transferBuffer.channels) {
+	for (int i = txStartIdx; i < txEndIdx; i+=my.transferBuffer.channels) {
 		// // sanity check:
 		// if (sampleBuffCursor_fp5 < 0)
 		// 	Dbg_println("!preD");
 
 		// get next sample:
-		if (!csr.playing){
+		if (!my.csr.playing){
 			scaledSample = WAV_PWM_RANGE / 2; // 50% == silence
 
 		} else {
@@ -329,8 +340,8 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 			interp1->accum[0] =
 												(short)(
 													(long) (
-														sampleBuffer.data[fp5toint(csr.sampleBuffCursor_fp5)]
-														 * csr.iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
+														my.sampleBuffer.data[fp5toint(my.csr.sampleBuffCursor_fp5)]
+														 * my.csr.iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator
 												)
@@ -340,16 +351,16 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		}
 
 		// put that sample in both channels
-		for (int j=0;j<transferBuffer.channels;j++)
-			transferBuffer.data[i+j] = scaledSample;
+		for (int j=0;j<my.transferBuffer.channels;j++)
+			my.transferBuffer.data[i+j] = scaledSample;
 
-		csr.advance();
+		my.csr.advance();
 
 	}
 }
 
 /*
-// TODO: this is broken until we get multi-port support back in ...
+// TODO: ISR_test is from the PI codebase. It's broken until we get multi-port support back in ...
 //
 // This ISR time-scales a 1hz sample into 4 output channels at 4 rates, but not (yet) adjusting volume.
 // instead of FP, we will use long ints, and shift off the 8 LSB
