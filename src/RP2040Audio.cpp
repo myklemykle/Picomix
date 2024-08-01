@@ -39,9 +39,7 @@ void PWMStreamer::setup_dma_channels(){
 
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
 	dmaTimer = dma_claim_unused_timer(true /* required */);
-	dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE * 3);  // HACK! play back at 1/3 PWM rate
-	//dma_timer_set_fraction(dmaTimer, 1, WAV_PWM_RANGE);  // play back at PWM rate (works!)
-	//dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
+	dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
 
 	// get some DMA channels:
 	for iTWICE {
@@ -92,52 +90,18 @@ void PWMStreamer::init(unsigned char ring) {
 bool PWMStreamer::isStarted() {
 	if (dma_channel_is_busy(wavDataCh[0]))
 		return true;
-	if (dma_channel_is_busy(wavDataCh[1]))
-		return true;
-
-	// Problem:
-	// Approx 1 time per transfer buffer rewind
-	// (that's (TRANSFER_BUFF_SAMPLES/2) / WAV_SAMPLE_RATE hz)
-	// the loop control DMA resets this DMA.
-	// This DMA channel could be not_busy() at that moment
-	// even when the channel isStarted(). If this method is
-	// called during that reset window, it could get something wrong.
-	//
-	// That reset window could be pretty short.
-	// I don't know how many cycles it takes for a chain between DMAs
-	// to happen -- maybe zero! The loop DMA writes a single word
-	// to rewind the data DMA, so that should only need 1 cycle.
-	// But with 4 DMA channels round-robining, that's really 4 cycles, minimum.
-	// If other DMA is in use it could be more.
-	//
-	// So the odds of hitting this reset window when we call dma_channel_is_busy()
-	// are as described above: extremely low, but not impossible.
-	//
-	// How to do better? Check twice.
-	// dma_channel_is_busy() compiles down to 9 instructions,
-	// so it takes at least 9 cycles + calling overhead.
-	//
-	// In the unlikely event we hit the reset window with the last check,
-	// I hope this next check will still spot a busy channel.
-
-	if (dma_channel_is_busy(wavDataCh[0]))
-		return true;
-	if (dma_channel_is_busy(wavDataCh[1]))
-		return true;
-
-	return false;
+	return dma_channel_is_busy(wavDataCh[1]);
 }
 
 void PWMStreamer::_stop(){
 	int i;
-	// abort both data & loop DMAs
-	// disable both audio PWMs and the xfer trigger PWM.
+	// abort DMA
 	for iTWICE {
 		dma_channel_abort(wavDataCh[i]);
 	}
+	// disable pwm
 	pwm_set_enabled(pwmSlice, false);
-	// // .. once everything is off, we can pause the trigger slice.
-	// pwm_set_mask_enabled(pwm_hw->en & ~(1 << pwmSlice) );
+
 	Dbg_println("all stopped");
 }
 
@@ -252,7 +216,7 @@ void AudioCursor::advance(){
 
 ////////////////////////////////////////
 // RP2040Audio object manages all the audio objects in the system,
-// and defines the ISR that pumps them into the txBuf.
+// and defines the ISR that pumps AudioCursors into txBufs.
 
 // This gets called once at startup to set up PWM
 void RP2040Audio::init(unsigned char ring) {
