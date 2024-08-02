@@ -159,12 +159,12 @@ typedef int32_t fp5_t;
 
 
 ///////////////////
-// AudioCursor plays through an AudioBuffer at an adjustable rate & level
+// AudioTrack plays through an AudioBuffer at an adjustable rate & level
 // It handles play/pause/seek (with wraparound) and looping.
 
-struct AudioCursor {
+struct AudioTrack {
 	AudioBuffer *buf;
-	AudioCursor(AudioBuffer &b){
+	AudioTrack(AudioBuffer &b){
 		buf = &b;
 	};
 
@@ -224,14 +224,14 @@ public:
 
   AudioBuffer transferBuffer[2] = { 
 		AudioBuffer(TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES / 2),
-			// handle possible odd value of TRANSFER_BUFF_SAMPLES:
-		AudioBuffer(TRANSFER_BUFF_CHANNELS, (TRANSFER_BUFF_SAMPLES - (TRANSFER_BUFF_SAMPLES / 2))
+			// handle possible odd value of TRANSFER_BUFF_SAMPLES
+		AudioBuffer(TRANSFER_BUFF_CHANNELS, (TRANSFER_BUFF_SAMPLES - (TRANSFER_BUFF_SAMPLES / 2)))
 	};
 	PWMStreamer pwm{transferBuffer[0],transferBuffer[1]};
 
 	// RAM buffer for samples loaded from flash
   AudioBuffer sampleBuffer{1, SAMPLE_BUFF_SAMPLES};
-	AudioCursor csr{sampleBuffer};
+	AudioTrack csr{sampleBuffer};
 
   void init(unsigned char ring);  // allocate & configure one PWM instance & suporting DMA channels
 

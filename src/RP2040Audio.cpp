@@ -129,15 +129,15 @@ void PWMStreamer::_start() {
 
 
 //////////////////////////////////////////////////
-///  AudioCursor
+///  AudioTrack
 //////////////////////////////////////////////////
 
-void AudioCursor::_pause(){
+void AudioTrack::_pause(){
 	playing = false;
 	// Dbg_println("paused");
 }
 
-void AudioCursor::_play(){
+void AudioTrack::_play(){
 	long c;
 	if (sampleBuffInc_fp5 > 0)  {
 		c = playbackStart;
@@ -151,17 +151,17 @@ void AudioCursor::_play(){
 	// Dbg_println("playing");
 }
 
-void AudioCursor::setLoops(int l){
+void AudioTrack::setLoops(int l){
 	loops = max(-1, l);
 }
 
-inline bool AudioCursor::_doneLooping(){
+inline bool AudioTrack::_doneLooping(){
 	if (loops < 0) return false;
 	if (loopCount > 1) return false;
 	return true;
 }
 
-void AudioCursor::setSpeed(float speed){
+void AudioTrack::setSpeed(float speed){
 	if (speed == 0) // no. do not do this.
 		return;
 
@@ -169,18 +169,18 @@ void AudioCursor::setSpeed(float speed){
 	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fp5);
 }
 
-float AudioCursor::getSpeed(){
+float AudioTrack::getSpeed(){
 	float speed = fp5tofloat(sampleBuffInc_fp5);
 	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fp5);
 	return speed;
 }
 
 // expecting a value between 0 and 1, or higher for trouble ...
-void AudioCursor::setLevel(float level){
+void AudioTrack::setLevel(float level){
 	iVolumeLevel = max(0, level * WAV_PWM_RANGE);
 }
 
-void AudioCursor::advance(){
+void AudioTrack::advance(){
 	// TODO: move this to the spots where start/len change ...
 	int32_t playbackStart_fp5 = inttofp5(playbackStart);
 	int32_t playbackEnd_fp5 = inttofp5(min((playbackStart + playbackLen), buf->sampleLen));
@@ -216,7 +216,7 @@ void AudioCursor::advance(){
 
 ////////////////////////////////////////
 // RP2040Audio object manages all the audio objects in the system,
-// and defines the ISR that pumps AudioCursors into txBufs.
+// and defines the ISR that pumps AudioTracks into txBufs.
 
 // This gets called once at startup to set up PWM
 void RP2040Audio::init(unsigned char ring) {
@@ -269,8 +269,6 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	AudioBuffer *idleTxBuf;
 	int idleChannel;
 	short scaledSample;
-	static uint16_t ch0mask = 1u << my.pwm.wavDataCh[0];
-	static uint16_t ch1mask = 1u << my.pwm.wavDataCh[1];
 
 	my.ISRcounter++;
 
@@ -490,7 +488,7 @@ uint32_t AudioBuffer::fillFromRawFile(Stream &f){
 	return sampleLen;
 }
 
-uint32_t AudioCursor::fillFromRawFile(Stream &f){
+uint32_t AudioTrack::fillFromRawFile(Stream &f){
 	playbackLen = buf->fillFromRawFile(f);
 	playbackStart = buf->sampleStart; // probably 0
 	return playbackLen;
