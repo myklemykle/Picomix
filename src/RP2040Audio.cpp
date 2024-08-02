@@ -258,14 +258,15 @@ void RP2040Audio::enableISR(bool on){
 	}
 }
 
-// This ISR sends a single stereo audio stream to two different outputs on two different PWM slices.
-// init() sets up an interrupt every TRANSFER_WINDOW_XFERS output samples,
-// then this ISR refills the transfer buffer with TRANSFER_BUFF_SAMPLES more samples,
-// which is TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS
+//
+// In our double-buffered DMA scheme, this ISR refills 
+// the idle buffer with new samples and rewinds its
+// DMA channel, even as the other DMA continues
+// to pump the other buffer's samples through the PWM.
+//
 void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	static auto &my = onlyInstance();
-	int txStartIdx, txEndIdx;
-	static int txHalfwayIdx = my.transferBuffer.samples / 2;
+	AudioBuffer *idleTxBuf;
 	int idleChannel;
 	short scaledSample;
 	static uint16_t ch0mask = 1u << my.pwm.wavDataCh[0];
@@ -284,11 +285,10 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 	dma_channel_acknowledge_irq1(my.pwm.wavDataCh[idleChannel]);
 	dma_channel_set_read_addr(my.pwm.wavDataCh[idleChannel], my.pwm.tBufDataPtr[idleChannel], false);
 
-	// fill idle channel buffer
-	txStartIdx = (idleChannel ? 0 : txHalfwayIdx);
-	txEndIdx = (idleChannel ? txHalfwayIdx : my.transferBuffer.samples);
+	idleTxBuf = &my.transferBuffer[idleChannel];
 
-	for (int i = txStartIdx; i < txEndIdx; i+=my.transferBuffer.channels) {
+	// fill idle channel buffer
+	for (int i = 0; i < idleTxBuf->samples; i += idleTxBuf->channels) {
 		// // sanity check:
 		// if (sampleBuffCursor_fp5 < 0)
 		// 	Dbg_println("!preD");
@@ -315,8 +315,8 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 		}
 
 		// put that sample in both channels
-		for (int j=0;j<my.transferBuffer.channels;j++)
-			my.transferBuffer.data[i+j] = scaledSample;
+		for (int j=0; j < idleTxBuf->channels; j++)
+			idleTxBuf->data[i+j] = scaledSample;
 
 		my.csr.advance();
 

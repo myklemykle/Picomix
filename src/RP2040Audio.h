@@ -118,12 +118,13 @@ struct AudioBuffer {
 //
 struct PWMStreamer {
 public:
-	PWMStreamer(AudioBuffer &aB){
-		tBuf = &aB;
+	PWMStreamer(AudioBuffer &aB0, AudioBuffer &aB1){
+		tBuf[0] = &aB0;
+		tBuf[1] = &aB1;
 		// point to the start of the first half of the buffer
-		tBufDataPtr[0] = tBuf->data;
+		tBufDataPtr[0] = tBuf[0]->data;
 		// point to the start of the second half
-		tBufDataPtr[1] = &(tBuf->data[tBuf->samples / 2]);
+		tBufDataPtr[1] = tBuf[1]->data;
 	}
 
   void init(unsigned char ring);
@@ -131,7 +132,7 @@ public:
   void _stop();
   bool isStarted();
 
-  AudioBuffer *tBuf;
+  AudioBuffer *tBuf[2];
 	
   int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet.
   unsigned int pwmSlice = 0;
@@ -221,8 +222,12 @@ public:
 	void start();
 	void stop();
 
-  AudioBuffer transferBuffer{TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES};
-	PWMStreamer pwm{transferBuffer};
+  AudioBuffer transferBuffer[2] = { 
+		AudioBuffer(TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES / 2),
+			// handle possible odd value of TRANSFER_BUFF_SAMPLES:
+		AudioBuffer(TRANSFER_BUFF_CHANNELS, (TRANSFER_BUFF_SAMPLES - (TRANSFER_BUFF_SAMPLES / 2))
+	};
+	PWMStreamer pwm{transferBuffer[0],transferBuffer[1]};
 
 	// RAM buffer for samples loaded from flash
   AudioBuffer sampleBuffer{1, SAMPLE_BUFF_SAMPLES};
