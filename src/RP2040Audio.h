@@ -1,15 +1,15 @@
-// TODO: license
-//
-//
-// WARNING: there should only ever be one instance of this object!
-// TODO: implement a minimal singleton pattern here
-//
 #ifndef __RP2040AUDIO_H
 #define __RP2040AUDIO_H
 
+// TODO: license?
+
+#include <functional>
+
+// TODO: F_CPU instead
 #ifndef MCU_MHZ
 #define MCU_MHZ 133
 #endif
+
 
 // There's a tradeoff btwn bit depth & sample rate. 
 // 10-bit audio has the advantage that the PWM output rate is up at 130khz,
@@ -20,33 +20,41 @@
 #define WAV_PWM_SCALE (WAV_PWM_BITS - 9)
 #define WAV_PWM_RANGE (1024 * WAV_PWM_SCALE)
 #define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's setting
-#define WAV_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz .  Running at 133mhz sys_clk, this comes to 129883hz .
-#define PWM_SAMPLE_RATE WAV_SAMPLE_RATE // not sure what WAV means in this context, really
-#define BUFF_SAMPLE_RATE 44100  				// the sample rate of the sample in our buffer.
+#define PWM_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz .  Running at 133mhz sys_clk, this comes to 129883hz .
 
-// For adjusting a DMA timer to feed the PWM at the buffer sample rate, we need to know clocks-per-sample as a ratio
-// That's 133M/44.1k , which is the same as 190000/63 (approximately 3015.873)
-// However the DMA timer scales clk_sys by a coefficient, where both the numerator and denominator be 16 bit values.
-// 42222/14 ~= 3015.857, i think that's the closest we can get with 16-bit ints.
-// (21111/7 is the same, obv)
-// I believe we'd need to change our system clock speed to get any closer to a 44.1khz sample rate.
+// To scale a DMA timer to feed samples to the PWM driver at a standard 44.1khz sample rate,
+// we need to configure the ratio between sample rate & master clock speed.
+// Here we presume that ratio is 133mhz/44.1khz, which simplifies to 190000/63 (approximately 3015.873)
+// However, the DMA timer can only scale clk_sys by a coefficient 
+// where both the numerator and denominator are 16 bit values. 
+// So 190000 doesn't fit.
+// However, 21111/7 ~= 3015.857 . I think that's the closest to 3015.873 we can get with a ratio of 16-bit ints.
+// (To get closer you could change the clock speed and recalculate the ratio.)
 #define PWM_DMA_TIMER_DEM 21111
 #define PWM_DMA_TIMER_NUM 7
 
 
+// The PWM subsystem is fed 2 16-bit samples per transfer:
 #define SAMPLES_PER_CHANNEL 2
 #define BYTES_PER_SAMPLE 2  				
-#define SAMPLE_BUFF_CHANNELS 1
-#define TRANSFER_BUFF_CHANNELS 2
-	// because the PWM subsystem wants to deal with stereo pairs, we use 2 stereo txBufs instead of 4 mono ones.
 
-// ISR_play() scales samples from the sample buffer into this buffer,
-// while DMA transfers from this buffer to the PWM.
-#define TRANSFER_WINDOW_XFERS 40 // number of 32-bit (4-byte) DMA transfers in the window
-																 // NOTE: when this was 80, the resulting PWM frequency was in hearing range & faintly audible in some situations.
-#define TRANSFER_SAMPLES ( 4 / BYTES_PER_SAMPLE ) // == 2; 32 bits is two samples per transfer
-#define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_SAMPLES ) // size in uint_16 samples
+// The transfer buffer is where we assemble those samples:
+#define TRANSFER_BUFF_CHANNELS 2
+
+// ISR_play() merges AudioTracks into a transfer buffer
+// as DMA transfers from this buffer to the PWM.
+
+// Number of 32-bit (4-byte) DMA transfers in the transfer buffer
+// The size of this value determines the interrupt rate.
+// A larger buffer means fewer interrupts, perhaps more efficient.
+// OTOH, when this was set to 80 (at 133mhz), the resulting interrrupt frequency 
+// injected audible noise into a circuit. Lower values keep it supersonic.
+#define TRANSFER_WINDOW_XFERS 40 
+
+#define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS)
+#define TRANSFER_BUFF_BYTES 	( TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE )
 																																
+///// NO LONGER TRUE? TODO: test!
 // IMPORTANT:
 // SAMPLE_BUFF_SAMPLES must be a multiple of TRANSFER_WINDOW_XFERS, because the ISR only
 // checks for overrun once per TRANSFER_WINDOW_XFERS.  (For efficiency.)
@@ -63,7 +71,6 @@
 // #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
 // // aka
 #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * sizeof(short)
-#define TRANSFER_BUFF_BYTES TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE
 
 ////////////////////
 // test tone defs:
@@ -77,12 +84,10 @@
 
 
 ////////////////
-// Audiobuffer stores channels x samples of audio
+// AudioBuffer
 //
-#include <functional>
 struct AudioBuffer {
 	const uint8_t resolution = BYTES_PER_SAMPLE; // bytes per a single channel's sample
-
 	const uint8_t channels; // # of interleaved channels of samples: mono = 1, stereo = 2
 	const long int samples;	// number of N-channel samples in this buffer
 	int16_t *data;
@@ -112,9 +117,9 @@ struct AudioBuffer {
 #include "hardware/pwm.h"
 
 //////////////
-// The PWMStreamer sets up & manages DMA streaming
-// from a memory buffer to a PWM instance.  Once this is
-// running it consumes no MCU cycles.
+// The PWMStreamer sets up & manages a pair of DMA channels
+// that take turns streaming samples from a pair of AudioBuffers to a PWM instance.
+// (The ISR rewinds the DMA channels and refills the buffers.)
 //
 struct PWMStreamer {
 public:
@@ -197,7 +202,7 @@ private:
 class RP2040Audio {
 
 	///////////////////////////////
-	// this section implements the singleton pattern for c++:
+	// This section implements the singleton pattern for c++:
 	// https://stackoverflow.com/questions/1008019/how-do-you-implement-the-singleton-design-pattern
 public:
 	static RP2040Audio& onlyInstance(){
@@ -206,10 +211,6 @@ public:
 	}
 private:
 	RP2040Audio() {}
-	//RP2040Audio(RP2040Audio const&);    // Don't Implement
-	//void operator=(RP2040Audio const&); // Don't implement
-	// NOTE: these ISRs will need binding to the single instance
-	// TODO: singleton pattern should keep a static pointer to the single instance so that's not necessary.
 
 public:
 	RP2040Audio(RP2040Audio const&)     = delete;
@@ -235,15 +236,15 @@ public:
 
   void init(unsigned char ring);  // allocate & configure one PWM instance & suporting DMA channels
 
-	// some timing data
+	// some performance profiling info:
 	volatile unsigned long ISRcounter = 0;
 
 	void enableISR(bool on);
 
 	void fillFromRawFile(Stream &f);
-  //void tweak();  // adjust the trigger pulse. for debugging purposes only. reads from Serial.
 
 private:
+	// TODO: move to PWMStreamer?
   static void ISR_play();
 
 };

@@ -4,6 +4,7 @@
 #define SDEBUG
 #include "dbg_macros.h"
 
+//TODO: ifndef ?
 #include "Arduino.h" // for Serial
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
@@ -32,12 +33,13 @@ void PWMStreamer::setup_audio_pwm_slice(unsigned char pin){
 }
 
 
-// ALERT: This methods assumes you've already set up the pwm slices
+// ALERT: This methods assumes you've already set up the pwm slice (pwmslice != -1)
 void PWMStreamer::setup_dma_channels(){
   dma_channel_config wavDataChConfig;
 	int i;
 
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
+	// TODO: check if it's been claimed already?
 	dmaTimer = dma_claim_unused_timer(true /* required */);
 	dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
 
