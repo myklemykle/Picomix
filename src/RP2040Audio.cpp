@@ -16,7 +16,8 @@
 #define iTWICE (i=0;i<2;i++)
 
 void PWMStreamer::setup_audio_pwm_slice(unsigned char pin){
-	pwmSlice = pwm_gpio_to_slice_num(pin);
+	if (pwmSlice < 0) // if not already assigned
+		pwmSlice = pwm_gpio_to_slice_num(pin);
 
 	// halt
 	pwm_set_enabled(pwmSlice, false);
@@ -33,10 +34,14 @@ void PWMStreamer::setup_audio_pwm_slice(unsigned char pin){
 }
 
 
-// ALERT: This methods assumes you've already set up the pwm slice (pwmslice != -1)
 void PWMStreamer::setup_dma_channels(){
   dma_channel_config wavDataChConfig;
 	int i;
+
+	if (pwmSlice < 0){
+		Dbg_println("error: set up pwm before dma");
+		return;
+	}
 
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
 	// TODO: check if it's been claimed already?
@@ -74,18 +79,22 @@ void PWMStreamer::setup_dma_channels(){
 																				 // TODO: deal with odd numbers here
 			false                              // Don't start immediately
 		);
+#if (PWMSTREAMER_DMA_INTERRUPT == DMA_IRQ_1)
 		dma_channel_set_irq1_enabled(wavDataCh[i], true);
+#else
+		dma_channel_set_irq0_enabled(wavDataCh[i], true);
+#endif
 	}
 
 }
 
-void PWMStreamer::init(unsigned char ring) {
+void PWMStreamer::init(unsigned char pin) {
 	///////////////////
-	// Set up PWM
-	setup_audio_pwm_slice(ring); // Enable PWM assigned to pins { ring, ring+1 }
+	// Set up PWM output on pin & (pin+1)
+	setup_audio_pwm_slice(pin); 
 
 	/////////////////////////
-	// claim and set up DMA channels
+	// claim and set up a pair of DMA channels for double-buffering
 	setup_dma_channels();
 }
 
@@ -141,7 +150,11 @@ inline int PWMStreamer::resetIRQ(){
   }
 
 	// clear interrupt
+#if (PWMSTREAMER_DMA_INTERRUPT == DMA_IRQ_1)
   dma_channel_acknowledge_irq1(wavDataCh[idleSide]);
+#else
+  dma_channel_acknowledge_irq0(wavDataCh[idleSide]);
+#endif
   // rewind idle channel DMA
   dma_channel_set_read_addr(wavDataCh[idleSide], tBufDataPtr[idleSide], false);
 
@@ -202,13 +215,12 @@ void AudioTrack::setLevel(float level){
 }
 
 void AudioTrack::advance(){
-	// TODO: move this to the spots where start/len change ...
 	int32_t playbackStart_fp5 = inttofp5(playbackStart);
 	int32_t playbackEnd_fp5 = inttofp5(min((playbackStart + playbackLen), buf->sampleLen));
 
 	sampleBuffCursor_fp5 += sampleBuffInc_fp5;
 
-	// sampleBuffInc_fp5 may be negative
+	// sampleBuffInc_fp5 may be negative:
 	if (sampleBuffInc_fp5 > 0)
 		while (sampleBuffCursor_fp5 >= playbackEnd_fp5){
 			if (_doneLooping()) {
@@ -232,6 +244,19 @@ void AudioTrack::advance(){
 				loopCount--;
 		}
 }
+
+uint32_t AudioTrack::fillFromRawStream(Stream &f){
+	playbackLen = buf->fillFromRawStream(f);
+	playbackStart = buf->sampleStart; // probably 0
+	return playbackLen;
+}
+
+uint32_t AudioTrack::fillFromRawFile(fs::FS &fs, String filename){
+	playbackLen = buf->fillFromRawFile(fs, filename);
+	playbackStart = buf->sampleStart; // probably 0
+	return playbackLen;
+}
+
 
 
 
@@ -258,7 +283,7 @@ void RP2040Audio::init(unsigned char ring) {
 	pwm.init(ring);
 
 	// install ISR
-	irq_set_exclusive_handler(DMA_IRQ_1, ISR_play);
+	irq_set_exclusive_handler(PWMSTREAMER_DMA_INTERRUPT, ISR_play);
 }
 
 AudioTrack *RP2040Audio::addTrack(AudioTrack *t){
@@ -293,9 +318,9 @@ void RP2040Audio::stop(){
 
 void RP2040Audio::enableISR(bool on){
 	if (on) {
-		irq_set_enabled(DMA_IRQ_1, true);
+		irq_set_enabled(PWMSTREAMER_DMA_INTERRUPT, true);
 	} else {
-		irq_set_enabled(DMA_IRQ_1, false);
+		irq_set_enabled(PWMSTREAMER_DMA_INTERRUPT, false);
 	}
 }
 
@@ -319,10 +344,7 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 
 	// fill idle channel buffer
 	for (int i = 0; i < idleTxBuf->samples; i += idleTxBuf->channels) {
-		short scaledSample = 0;
-		// // sanity check:
-		// if (sampleBuffCursor_fp5 < 0)
-		// 	Dbg_println("!preD");
+		long scaledSample = 0;
 
 		for (int t=0; t<MAX_TRACKS; t++){
 			if (my.trk[t] == NULL)
@@ -337,74 +359,23 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 				continue;
 			}
 
-			// Since amplitude can go over max, use interpolator #1 in clamp mode
-			// to hard-limit the signal.
-			interp1->accum[0] =
-												(short)(
-													(long) (
+			scaledSample +=
+													(
 														my.trk[t]->buf->data[fp5toint(my.trk[t]->sampleBuffCursor_fp5)]
 														 * my.trk[t]->iVolumeLevel  // scale numerator (can be from 0 to more than WAV_PWM_RANGE
 													)
 													/ WAV_PWM_RANGE      // scale denominator
-												)
 				;
-			scaledSample +=  interp1->peek[0];
-
 			my.trk[t]->advance();
 		}
 
-		scaledSample += (WAV_PWM_RANGE / 2); // shift to positive
+		interp1->accum[0] = (short) scaledSample; // hard-limit with interpolator
 
 		// put that sample in both channels
 		for (int j=0; j < idleTxBuf->channels; j++)
-			idleTxBuf->data[i+j] = scaledSample;
-
-
+			idleTxBuf->data[i+j] = interp1->peek[0] + (WAV_PWM_RANGE / 2); // shift to positive
 	}
 }
-
-/*
-// TODO: ISR_test is from the PI codebase. It's broken until we get multi-port support back in ...
-//
-// This ISR time-scales a 1hz sample into 4 output channels at 4 rates, but not (yet) adjusting volume.
-// instead of FP, we will use long ints, and shift off the 8 LSB
-// This assumes that the sample buffer contains a single complete waveform.
-extern volatile uint32_t sampleCursorInc[4];
-//void __not_in_flash_func(RP2040Audio::ISR_test)() {
-void RP2040Audio::ISR_test() {
-	static long sampleBuffCursor[4] = {0,0,0,0};
-
-	ISRcounter++;
-
-	// reset idle channel DMA
-	if (dma_channel_is_busy(pwm.wavDataCh[0])) {
-		idleSide = 1;
-	} else {
-		idleSide = 0;
-	}
-
-	dma_channel_acknowledge_irq1(pwm.wavDataCh[idleSide]);
-	dma_channel_set_read_addr(pwm.wavDataCh[idleSide], pwm.tBufDataPtr[idleSide], false);
-
-	for (uint8_t port = 0; port<1; port++) {
-		for (int i = 0; i < TRANSFER_BUFF_SAMPLES; i+=TRANSFER_BUFF_CHANNELS) {
-			for (uint8_t chan = 0; chan < TRANSFER_BUFF_CHANNELS; chan++){
-				uint8_t pc = (port<<1)+chan;
-
-				// copy from mono samplebuf to stereo transferbuf
-				transferBuffer.data[i+chan] = sampleBuffer.data[ sampleBuffCursor[pc] / 256 ] ;
-						// + (WAV_PWM_RANGE / 2);  // not shifting! we expect a positive-weighted sample in the buffer (true arg passed to fillWithSine)
-
-				// advance cursor:
-				sampleBuffCursor[pc] += sampleCursorInc[pc];
-					while (sampleBuffCursor[pc] >= SAMPLE_BUFF_SAMPLES *256)
-						sampleBuffCursor[pc] -= SAMPLE_BUFF_SAMPLES *256;
-			}
-		}
-	}
-
-}
-*/
 
 //////////
 //
@@ -412,11 +383,11 @@ void RP2040Audio::ISR_test() {
 // In every case it's signed values between -(WAV_PWM_RANGE/2)
 // and WAV_PWM_COUNT
 //
-// fill buffer with value of an arbitrary function across a given range,
+// Fill buffer with value of an arbitrary function across a given range,
 // repeated some number of times.
 //
 
-// this version takes a sample start & length, updating sampleStart & sampleLen
+// This version takes a sample start & length, updating sampleStart & sampleLen
 void AudioBuffer::fillWithFunction(float fStart, float fEnd, const std::function<int(float)> theFunction, float repeats, uint32_t sLen, uint32_t sStart){
 	// If we had exceptions in Arduino, these would be exceptions.
 	// Instead, try to cope with really weird args:
@@ -438,7 +409,7 @@ void AudioBuffer::fillWithFunction(float fStart, float fEnd, const std::function
 	fillWithFunction(fStart, fEnd, theFunction, repeats);
 }
 
-// this version fills between the current values of sampleStart & sampleLen
+// This version fills in between the buffer's current values of sampleStart & sampleLen
 void AudioBuffer::fillWithFunction(float start, float end, const std::function<int(float)> theFunction, float repeats){
 	float deltaX = (end - start)/sampleLen * repeats;
 	float repeatLen = sampleLen / repeats;
@@ -502,9 +473,9 @@ void AudioBuffer::fillWithSaw(uint count, bool positive){
 	}, count, samples);
 }
 
-// load a raw PCM audio file, which you can create with sox:
+// Load a raw PCM audio file of signed 16-bit samples, which you can create with sox:
 //       sox foo.wav foo.raw
-// assuming foo.raw contains signed 16-bit samples
+//
 uint32_t AudioBuffer::fillFromRawFile(fs::FS &fs, String filename){
 	File f = fs.open(filename, "r");
   if (!f) {
@@ -518,6 +489,7 @@ uint32_t AudioBuffer::fillFromRawFile(fs::FS &fs, String filename){
 	return sampleLen;
 }
 
+// Fill the buffer from an input stream of signed 16-bit samples
 uint32_t AudioBuffer::fillFromRawStream(Stream &f){
 	uint32_t bc; // buffer cursor
 	// loading 16-bit data 8 bits at a time ...
@@ -535,24 +507,11 @@ uint32_t AudioBuffer::fillFromRawStream(Stream &f){
 	// convert it to length in samples
 	sampleLen = length / resolution;
 
-	// Now shift those (presumably) signed-16-bit samples down to our output sample width
+	// Now shift those signed-16-bit samples down to our output bit resolution of WAV_PWM_BITS
 	for (bc = sampleStart; bc<sampleLen; bc++) {
 		data[bc] = data[bc] / (pow(2, (16 - WAV_PWM_BITS)));
 	}
 
 	return sampleLen;
 }
-
-uint32_t AudioTrack::fillFromRawStream(Stream &f){
-	playbackLen = buf->fillFromRawStream(f);
-	playbackStart = buf->sampleStart; // probably 0
-	return playbackLen;
-}
-
-uint32_t AudioTrack::fillFromRawFile(fs::FS &fs, String filename){
-	playbackLen = buf->fillFromRawFile(fs, filename);
-	playbackStart = buf->sampleStart; // probably 0
-	return playbackLen;
-}
-
 

@@ -1,7 +1,8 @@
 #ifndef __RP2040AUDIO_H
 #define __RP2040AUDIO_H
 
-// TODO: license?
+// This project is Open Source!
+// License: https://creativecommons.org/licenses/by-sa/4.0/
 
 #include <functional>
 #include <FS.h>
@@ -83,18 +84,21 @@ struct AudioBuffer {
 #include "hardware/pwm.h"
 
 //////////////
-// The PWMStreamer sets up & manages a pair of DMA channels
-// that take turns streaming samples from a pair of AudioBuffers to a PWM instance.
-// (The ISR rewinds the DMA channels and refills the buffers.)
+// PWMStreamer sets up & manages a pair of DMA channels
+// which take turns streaming samples from a pair of AudioBuffers to a PWM instance.
+// The ISR in RP2040Audio rewinds the DMA channels and refills the buffers.
 //
+
+// Two options for DMA interrupt. Choose one:
+#define PWMSTREAMER_DMA_INTERRUPT DMA_IRQ_0
+//#define PWMSTREAMER_DMA_INTERRUPT DMA_IRQ_1
+
 struct PWMStreamer {
 public:
 	PWMStreamer(AudioBuffer &aB0, AudioBuffer &aB1){
 		tBuf[0] = &aB0;
 		tBuf[1] = &aB1;
-		// point to the start of the first half of the buffer
 		tBufDataPtr[0] = tBuf[0]->data;
-		// point to the start of the second half
 		tBufDataPtr[1] = tBuf[1]->data;
 	}
 
@@ -107,9 +111,9 @@ public:
   AudioBuffer *tBuf[2];
 
   int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet.
-  unsigned int pwmSlice = 0;
+  int pwmSlice = -1;
   int16_t *tBufDataPtr[2]; // used by DMA control channel to reset DMA data channel
-													 
+	
 private:
 	pwm_config pCfg, tCfg;
 	int dmaTimer;
@@ -229,7 +233,6 @@ public:
 	AudioTrack *addTrack(AudioTrack *t);
 
 private:
-	// TODO: move to PWMStreamer?
   static void ISR_play();
 
 };
