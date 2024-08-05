@@ -4,6 +4,7 @@
 // TODO: license?
 
 #include <functional>
+#include <FS.h>
 
 // TODO: F_CPU instead
 #ifndef MCU_MHZ
@@ -11,7 +12,7 @@
 #endif
 
 
-// There's a tradeoff btwn bit depth & sample rate. 
+// There's a tradeoff btwn bit depth & sample rate.
 // 10-bit audio has the advantage that the PWM output rate is up at 130khz,
 // which means that the HF noise is really getting well-suppressed.
 // With 12-bit audio, that noise is getting down into the almost-audible
@@ -25,8 +26,8 @@
 // To scale a DMA timer to feed samples to the PWM driver at a standard 44.1khz sample rate,
 // we need to configure the ratio between sample rate & master clock speed.
 // Here we presume that ratio is 133mhz/44.1khz, which simplifies to 190000/63 (approximately 3015.873)
-// However, the DMA timer can only scale clk_sys by a coefficient 
-// where both the numerator and denominator are 16 bit values. 
+// However, the DMA timer can only scale clk_sys by a coefficient
+// where both the numerator and denominator are 16 bit values.
 // So 190000 doesn't fit.
 // However, 21111/7 ~= 3015.857 . I think that's the closest to 3015.873 we can get with a ratio of 16-bit ints.
 // (To get closer you could change the clock speed and recalculate the ratio.)
@@ -36,7 +37,9 @@
 
 // The PWM subsystem is fed 2 16-bit samples per transfer:
 #define SAMPLES_PER_CHANNEL 2
-#define BYTES_PER_SAMPLE 2  				
+//#define BYTES_PER_SAMPLE 2
+// // aka
+#define BYTES_PER_SAMPLE sizeof(short)
 
 // The transfer buffer is where we assemble those samples:
 #define TRANSFER_BUFF_CHANNELS 2
@@ -47,13 +50,13 @@
 // Number of 32-bit (4-byte) DMA transfers in the transfer buffer
 // The size of this value determines the interrupt rate.
 // A larger buffer means fewer interrupts, perhaps more efficient.
-// OTOH, when this was set to 80 (at 133mhz), the resulting interrrupt frequency 
+// OTOH, when this was set to 80 (at 133mhz), the resulting interrrupt frequency
 // injected audible noise into a circuit. Lower values keep it supersonic.
-#define TRANSFER_WINDOW_XFERS 40 
+#define TRANSFER_WINDOW_XFERS 40
 
 #define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS)
 #define TRANSFER_BUFF_BYTES 	( TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE )
-																																
+
 ///// NO LONGER TRUE? TODO: test!
 // IMPORTANT:
 // SAMPLE_BUFF_SAMPLES must be a multiple of TRANSFER_WINDOW_XFERS, because the ISR only
@@ -67,7 +70,7 @@
 //#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500)
 #define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000)
 
-// And that's using this much memory:
+// That uses this much memory:
 // #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
 // // aka
 #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * sizeof(short)
@@ -110,7 +113,8 @@ struct AudioBuffer {
 	void fillWithSine(uint count, bool positive = false);
 	void fillWithSaw(uint count, bool positive = false);
 	void fillWithSquare(uint count, bool positive = false);
-	uint32_t fillFromRawFile(Stream &f);
+	uint32_t fillFromRawFile(fs::FS &fs, String filename);
+	uint32_t fillFromRawStream(Stream &f);
 
 };
 
@@ -138,7 +142,7 @@ public:
   bool isStarted();
 
   AudioBuffer *tBuf[2];
-	
+
   int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet.
   unsigned int pwmSlice = 0;
   int16_t *tBufDataPtr[2]; // used by DMA control channel to reset DMA data channel
@@ -169,8 +173,17 @@ typedef int32_t fp5_t;
 
 struct AudioTrack {
 	AudioBuffer *buf;
+
+	AudioTrack(AudioBuffer *b){
+		buf = b;
+	};
+
 	AudioTrack(AudioBuffer &b){
 		buf = &b;
+	};
+
+	AudioTrack(uint8_t channels, long int sampleLength){
+		buf = new AudioBuffer(channels, sampleLength);
 	};
 
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
@@ -183,11 +196,11 @@ struct AudioTrack {
 	int loopCount = 0;
 	bool playing = false;
 
-	uint32_t fillFromRawFile(Stream &f);
+	uint32_t fillFromRawStream(Stream &f);
+	uint32_t fillFromRawFile(fs::FS &fs, String filename);
 	// I am adding these underscores so that _pause and pause don't get mixed up when i port PI to this version:
   void _play();
-	void _pause();
-	void setLooping(bool l);
+	void _pause(); void setLooping(bool l);
 	void setLoops(int l);
 	bool _doneLooping(); // _why?
 	void setSpeed(float speed);
@@ -198,6 +211,9 @@ struct AudioTrack {
 private:
 
 };
+
+// How many tracks do we think we can mix?
+#define MAX_TRACKS 4
 
 class RP2040Audio {
 
@@ -210,7 +226,11 @@ public:
 		return singleGuy;
 	}
 private:
-	RP2040Audio() {}
+	RP2040Audio() {
+		for (int i=0;i<MAX_TRACKS;i++){
+			trk[i] = NULL;
+		}
+	}
 
 public:
 	RP2040Audio(RP2040Audio const&)     = delete;
@@ -223,16 +243,14 @@ public:
 	void start();
 	void stop();
 
-  AudioBuffer transferBuffer[2] = { 
+  AudioBuffer transferBuffer[2] = {
 		AudioBuffer(TRANSFER_BUFF_CHANNELS, TRANSFER_BUFF_SAMPLES / 2),
-			// handle possible odd value of TRANSFER_BUFF_SAMPLES
 		AudioBuffer(TRANSFER_BUFF_CHANNELS, (TRANSFER_BUFF_SAMPLES - (TRANSFER_BUFF_SAMPLES / 2)))
 	};
 	PWMStreamer pwm{transferBuffer[0],transferBuffer[1]};
 
 	// RAM buffer for samples loaded from flash
-  AudioBuffer sampleBuffer{1, SAMPLE_BUFF_SAMPLES};
-	AudioTrack csr{sampleBuffer};
+	AudioTrack *trk[MAX_TRACKS];
 
   void init(unsigned char ring);  // allocate & configure one PWM instance & suporting DMA channels
 
@@ -241,7 +259,10 @@ public:
 
 	void enableISR(bool on);
 
-	void fillFromRawFile(Stream &f);
+	void fillFromRawStream(Stream &f);
+
+	AudioTrack *addTrack(uint8_t channels, long int sampleLength);
+	AudioTrack *addTrack(AudioTrack *t);
 
 private:
 	// TODO: move to PWMStreamer?
