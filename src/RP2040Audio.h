@@ -6,12 +6,6 @@
 #include <functional>
 #include <FS.h>
 
-// TODO: F_CPU instead
-#ifndef MCU_MHZ
-#define MCU_MHZ 133
-#endif
-
-
 // There's a tradeoff btwn bit depth & sample rate.
 // 10-bit audio has the advantage that the PWM output rate is up at 130khz,
 // which means that the HF noise is really getting well-suppressed.
@@ -19,9 +13,9 @@
 // spectrum, so output filtering is more crucial.
 #define WAV_PWM_BITS 10
 #define WAV_PWM_SCALE (WAV_PWM_BITS - 9)
-#define WAV_PWM_RANGE (1024 * WAV_PWM_SCALE)
-#define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's setting
-#define PWM_SAMPLE_RATE (MCU_MHZ * 1000000 / WAV_PWM_RANGE) // in seconds/hz .  Running at 133mhz sys_clk, this comes to 129883hz .
+#define WAV_PWM_RANGE (2 << (WAV_PWM_BITS - 1))
+#define WAV_PWM_COUNT (WAV_PWM_RANGE - 1)  // the PWM counter's range is from 0 to (WAV_PWM_COUNT - 1)
+#define PWM_SAMPLE_RATE (F_CPU * 1000000 / WAV_PWM_RANGE) // in seconds/hz .  Running at 133mhz sys_clk, this comes to 129883hz .
 
 // To scale a DMA timer to feed samples to the PWM driver at a standard 44.1khz sample rate,
 // we need to configure the ratio between sample rate & master clock speed.
@@ -44,9 +38,6 @@
 // The transfer buffer is where we assemble those samples:
 #define TRANSFER_BUFF_CHANNELS 2
 
-// ISR_play() merges AudioTracks into a transfer buffer
-// as DMA transfers from this buffer to the PWM.
-
 // Number of 32-bit (4-byte) DMA transfers in the transfer buffer
 // The size of this value determines the interrupt rate.
 // A larger buffer means fewer interrupts, perhaps more efficient.
@@ -56,35 +47,6 @@
 
 #define TRANSFER_BUFF_SAMPLES ( TRANSFER_WINDOW_XFERS * TRANSFER_BUFF_CHANNELS)
 #define TRANSFER_BUFF_BYTES 	( TRANSFER_BUFF_SAMPLES * BYTES_PER_SAMPLE )
-
-///// NO LONGER TRUE? TODO: test!
-// IMPORTANT:
-// SAMPLE_BUFF_SAMPLES must be a multiple of TRANSFER_WINDOW_XFERS, because the ISR only
-// checks for overrun once per TRANSFER_WINDOW_XFERS.  (For efficiency.)
-//
-//#define SAMPLE_BUFF_SAMPLES 	( TRANSFER_WINDOW_XFERS * (320 / WAV_PWM_SCALE) )
-//
-// that's fine for a waveform, but for noise we need a much larger buffer.
-// (It's remarkable how long a white noise sample has to be before you can't detect some
-// looping artifact.  Longer than 2 seconds, for sure.)
-//#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 2500)
-#define SAMPLE_BUFF_SAMPLES (TRANSFER_WINDOW_XFERS * 1000)
-
-// That uses this much memory:
-// #define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * BYTES_PER_SAMPLE
-// // aka
-#define SAMPLE_BUFF_BYTES SAMPLE_BUFF_SAMPLES * sizeof(short)
-
-////////////////////
-// test tone defs:
-#define TESTTONE_OFF 0
-#define TESTTONE_SINE 1
-#define TESTTONE_SQUARE 2
-#define TESTTONE_SAW 3
-#define TESTTONE_NOISE 4
-#define TESTTONE_NAMES { "off", "sine", "square", "saw", "noise" }
-#define TESTTONE_COUNT 5 // including "off"
-
 
 ////////////////
 // AudioBuffer
@@ -140,12 +102,14 @@ public:
   void _start();
   void _stop();
   bool isStarted();
+	int resetIRQ();
 
   AudioBuffer *tBuf[2];
 
   int wavDataCh[2] = {-1, -1};  // -1 = DMA channel not assigned yet.
   unsigned int pwmSlice = 0;
   int16_t *tBufDataPtr[2]; // used by DMA control channel to reset DMA data channel
+													 
 private:
 	pwm_config pCfg, tCfg;
 	int dmaTimer;

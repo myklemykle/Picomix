@@ -70,7 +70,7 @@ void PWMStreamer::setup_dma_channels(){
 			&wavDataChConfig,                                           // this configuration
 			(void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice)),  // write to pwm channel (pwm structures are 0x14 bytes wide)
 			tBufDataPtr[i],
-			TRANSFER_BUFF_SAMPLES / 4,         // 2 samples (32 bits) per transfer, and we're only transferring half of the buffer.
+			TRANSFER_BUFF_SAMPLES / 4,         // transfer count: 2 samples (32 bits) per transfer, and we're only transferring half of the buffer.
 																				 // TODO: deal with odd numbers here
 			false                              // Don't start immediately
 		);
@@ -127,6 +127,25 @@ void PWMStreamer::_start() {
 
 	// start the signal PWM
 	pwm_set_mask_enabled((1 << pwmSlice) | pwm_hw->en);
+}
+
+// This is an inline method the ISR can call
+// to clear interrupts & reset streamer for the next interrupt.
+inline int PWMStreamer::resetIRQ(){
+	int idleSide;
+
+  if (dma_channel_is_busy(wavDataCh[0])) {
+    idleSide = 1;
+  } else {
+    idleSide = 0;
+  }
+
+	// clear interrupt
+  dma_channel_acknowledge_irq1(wavDataCh[idleSide]);
+  // rewind idle channel DMA
+  dma_channel_set_read_addr(wavDataCh[idleSide], tBufDataPtr[idleSide], false);
+
+	return idleSide;
 }
 
 
@@ -293,16 +312,8 @@ void __not_in_flash_func(RP2040Audio::ISR_play)() {
 
 	my.ISRcounter++;
 
-	// write to the half of the buffer that we're not DMAing from ATM
-	if (dma_channel_is_busy(my.pwm.wavDataCh[0])) {
-		idleSide = 1;
-	} else {
-		idleSide = 0;
-	}
-
-	// reset idle channel DMA
-	dma_channel_acknowledge_irq1(my.pwm.wavDataCh[idleSide]);
-	dma_channel_set_read_addr(my.pwm.wavDataCh[idleSide], my.pwm.tBufDataPtr[idleSide], false);
+	// Acknowledge interrupt, rewind DMA & determine idle side of the double buffer
+	idleSide = my.pwm.resetIRQ();
 
 	idleTxBuf = &my.transferBuffer[idleSide];
 
