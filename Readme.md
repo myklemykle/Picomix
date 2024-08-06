@@ -8,7 +8,7 @@ all mixed down to a pair of PWM signals.
 
 This is very useful for music-toy applications,
 but if you just want to play a single channel of sound at a normal speed 
-there are better options.
+there are simpler options.
 
 # Features
 * Play multiple tracks of audio -- at least 24 simultanous tracks at 133mhz.
@@ -36,9 +36,8 @@ and will transmit whatever audible noise is present on that bus, which is often 
 
 This library allows you to adjust the tradeoffs between bit-depth and sample rate.
 Higher bit depth gives lower sample rates, which in turn generates more HF noise.
-When using a simple single-pole RC hipass output filter, 10 or 11 bit resolution 
-can produce a decent-sounding signal with a manageable amount of noise.
-
+When using a simple single-pole RC hipass output filter and running at 133mhz clock rate, 
+10 or 11 bit resolution can produce a decent-sounding signal with a manageable amount of noise.
 
 # Roadmap
 
@@ -59,8 +58,9 @@ Missing features that you or I might someday implement include:
 
 ~~~
 
-# License
+# Open Source
 
-This library is Open Source, released under the Creative Commons
-ATTRIBUTION-SHAREALIKE 4.0 INTERNATIONAL license ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
+This library is released under the Creative Commons 
+ATTRIBUTION-SHAREALIKE 4.0 INTERNATIONAL open source license 
+([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)).
 This is the same license used by the RPi foundation for the Pico SDK.
