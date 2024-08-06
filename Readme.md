@@ -45,7 +45,7 @@ can produce a decent-sounding signal with a manageable amount of noise.
 # Roadmap
 
 Missing features that you or I might someday implement include:
-	* Stereo. In this version, the left and right PWM pins play the same mono signal.
+  * Stereo. In this release the left and right PWM pins play the same mono signal.
   * Multiple stereo outputs
   * PDM output (lower noise, more cycles)
   * Output to any specific codec
@@ -57,7 +57,7 @@ Missing features that you or I might someday implement include:
 
 ~~~cpp
 
-// TODO
+// Coming soon ...
 
 ~~~
 
