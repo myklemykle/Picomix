@@ -10,7 +10,7 @@ but if you just want to play a single channel of sound at a normal speed
 you probably have better options.
 
 # Features
-* Play multiple tracks of audio. Up to N tracks can be mixed.
+* Play multiple tracks of audio: at least 16 simultanous tracks at 133mhz, possibly more.
 * Each track has independent speed, volume, transport and loop controls.
 * Uses the RP2040's DMA controllers, PWM generators and hardware interpolators to reduce MCU usage.
 * The mixer ISR (the main user of MCU) can run on either core.

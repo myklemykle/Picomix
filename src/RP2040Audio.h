@@ -58,9 +58,12 @@ struct AudioBuffer {
 	const long int samples;	// number of N-channel samples in this buffer
 	int16_t *data;
 
-	AudioBuffer(uint8_t c, long int s): channels(c), samples(s){
-		data = new int16_t[c * s];
-	}
+	AudioBuffer(uint8_t c, long int s): 
+		channels(c), 
+		samples(s), 
+		data(new int16_t[c * s])
+		{
+		}
 
 	inline uint32_t byteLen(){
 		return channels * samples * resolution;
@@ -142,17 +145,24 @@ typedef int32_t fp5_t;
 struct AudioTrack {
 	AudioBuffer *buf;
 
-	AudioTrack(AudioBuffer *b){
-		buf = b;
-	};
+	AudioTrack(AudioBuffer *b):
+		buf(b),
+		playbackStart(b->sampleStart),
+		playbackLen(b->sampleLen)
+		{
+		};
 
-	AudioTrack(AudioBuffer &b){
-		buf = &b;
-	};
+	AudioTrack(AudioBuffer &b):
+		buf(&b),
+		playbackStart(b.sampleStart),
+		playbackLen(b.sampleLen)
+		{
+		};
 
-	AudioTrack(uint8_t channels, long int sampleLength){
-		buf = new AudioBuffer(channels, sampleLength);
-	};
+	AudioTrack(uint8_t channels, long int sampleLen):
+		buf(new AudioBuffer(channels, sampleLen)),
+		playbackLen(sampleLen)
+		{};
 
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 
@@ -175,13 +185,14 @@ struct AudioTrack {
 	float getSpeed();
 	void setLevel(float level);
 	void advance();
-	uint32_t playbackLen, playbackStart; // public until we need accessors
+	uint32_t playbackStart = 0; // public until we need accessors
+	uint32_t playbackLen; // public until we need accessors
 private:
 
 };
 
 // How many tracks do we think we can mix?
-#define MAX_TRACKS 4
+#define MAX_TRACKS 16
 
 class RP2040Audio {
 
@@ -229,7 +240,7 @@ public:
 
 	void fillFromRawStream(Stream &f);
 
-	AudioTrack *addTrack(uint8_t channels, long int sampleLength);
+	AudioTrack *addTrack(uint8_t channels, long int sampleLen);
 	AudioTrack *addTrack(AudioTrack *t);
 
 private:
