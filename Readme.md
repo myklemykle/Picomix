@@ -33,13 +33,14 @@ Chapter 3.4 of the RPi Foundation's excellent document "Hardware Design with RP2
 describes a good filter circuit and other strategies for addressing this:
   https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf
 
+Furthermore, PWM audio signals are powered by the MCU's main power bus,
+and will transmit whatever audible noise is present on that bus, which is often quite a lot.
+
 This library allows you to adjust the tradeoffs between bit-depth and sample rate.
 Higher bit depth gives lower sample rates, which in turn generates more HF noise.
 When using a simple single-pole RC hipass output filter, 10 or 11 bit resolution 
 can produce a decent-sounding signal with a manageable amount of noise.
 
-Furthermore, PWM audio signals are powered by the MCU's main power bus,
-and will transmit whatever audible noise is present on that bus, which is often quite a lot.
 
 # Roadmap
 
