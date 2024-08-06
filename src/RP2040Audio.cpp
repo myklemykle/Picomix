@@ -185,6 +185,8 @@ void AudioTrack::_play(){
 	// Dbg_println("playing");
 }
 
+// setLoops(-1) to loop forever when play() is called;
+// setLoops(n) to loop N times before stopping
 void AudioTrack::setLoops(int l){
 	loops = max(-1, l);
 }
