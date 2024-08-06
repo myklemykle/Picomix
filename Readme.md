@@ -24,8 +24,8 @@ It is not currently ported to other cores, to other MCUs than the RP2040,
 or to other environments than Arduino.
 
 # NOTICE: PWM AUDIO IS CHEAP AND DIRTY!
-Due to the nature of PWM audio, the signal produced on the output pins
-contains horrible amounts of supersonic noise that must be filtered out,
+Due to the nature of PWM audio, the signals produced on the output pins
+contain huge amounts of supersonic noise that must be filtered out,
 or else it can cause all kinds of downstream audio problems
 and may even damage amplifiers and loudspeakers!
 I will not be held responsible for your loss of gear or hearing.
