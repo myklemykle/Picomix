@@ -5,6 +5,7 @@ for Arduino on the Raspberry Pi RP2040
 which allows multiple samples to be played simultaneously 
 at independent volumes and speeds (even backwards),
 all mixed down to a pair of PWM signals.
+
 This is very useful for music-toy applications,
 but if you just want to play a single channel of sound at a normal speed 
 there are better options.
