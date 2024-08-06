@@ -18,8 +18,7 @@ there are better options.
 * Some handy waveform-generation utilities.
 
 # Requirements
-This library currently requires the arduino-pico core by Earl Philhower:
-  https://github.com/earlephilhower/arduino-pico
+This library currently requires [the arduino-pico core by Earl Philhower](https://github.com/earlephilhower/arduino-pico).
 It is not currently ported to other cores, to other MCUs than the RP2040,
 or to other environments than Arduino.
 
@@ -29,9 +28,8 @@ contain huge amounts of supersonic noise that must be filtered out,
 or else it can cause all kinds of downstream audio problems
 and may even damage amplifiers and loudspeakers!
 I will not be held responsible for your loss of gear or hearing.
-Chapter 3.4 of the RPi Foundation's excellent document "Hardware Design with RP2040"
-describes a good filter circuit and other strategies for addressing this:
-  https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf
+Chapter 3.4 of the RPi Foundation's excellent document ["Hardware Design with RP2040"](https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf)
+describes a good filter circuit and other strategies for addressing this.
 
 Furthermore, PWM audio signals are powered by the MCU's main power bus,
 and will transmit whatever audible noise is present on that bus, which is often quite a lot.
@@ -64,6 +62,5 @@ Missing features that you or I might someday implement include:
 # License
 
 This library is Open Source, released under the Creative Commons
-ATTRIBUTION-SHAREALIKE 4.0 INTERNATIONAL license (CC BY-SA 4.0)
-  https://creativecommons.org/licenses/by-sa/4.0/
-(This is the license used by the RPi foundation for the Pico SDK.)
+ATTRIBUTION-SHAREALIKE 4.0 INTERNATIONAL license ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
+This is the same license used by the RPi foundation for the Pico SDK.
