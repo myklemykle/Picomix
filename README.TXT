@@ -1,10 +1,10 @@
-# Arduino+Pico+PWM Audio Mixer
+# PICOMIX: Arduino+Pico+PWM Audio Mixer
 
 This library implements a PWM-based audio system 
 for Arduino on the Raspberry Pi RP2040 
 which allows multiple samples to be played simultaneously 
-at independent volumes and speeds (even backwards) 
-mixed down to a stereo pair of PWM signals.
+at independent volumes and speeds (even backwards),
+all mixed down to a pair of PWM signals.
 This is very useful for music-toy applications,
 but if you just want to play a single channel of sound at a normal speed 
 there are better options.
@@ -43,10 +43,11 @@ and will transmit whatever audible noise is present on that bus, which is often 
 # Roadmap
 
 Missing features that you or I might someday implement include:
+	* Stereo. In this version, the left and right PWM pins play the same mono signal.
   * Multiple stereo outputs
   * PDM output (lower noise, more cycles)
-  * Output to some specific codec
-  * Support for the mbed core
+  * Output to any specific codec
+  * Support the mbed core
   * Don't require Arduino at all
 
 
