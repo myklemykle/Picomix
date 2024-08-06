@@ -11,7 +11,7 @@
 #include "hardware/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
-#include "RP2040Audio.h"
+#include "Picomix.h"
 
 #define iTWICE (i=0;i<2;i++)
 
@@ -104,7 +104,7 @@ bool PWMStreamer::isStarted() {
 	return dma_channel_is_busy(wavDataCh[1]);
 }
 
-void PWMStreamer::_stop(){
+void PWMStreamer::stop(){
 	int i;
 	// abort DMA
 	for iTWICE {
@@ -116,12 +116,12 @@ void PWMStreamer::_stop(){
 	Dbg_println("all stopped");
 }
 
-void PWMStreamer::_start() {
+void PWMStreamer::start() {
 	/*********************************************/
 	/* Stop playing audio if DMA already active. */
 	/*********************************************/
 	if (isStarted())
-		_stop();
+		stop();
 
 	// rewind pwm
 	pwm_init(pwmSlice, &pCfg, false);
@@ -166,12 +166,12 @@ inline int PWMStreamer::resetIRQ(){
 ///  AudioTrack
 //////////////////////////////////////////////////
 
-void AudioTrack::_pause(){
+void AudioTrack::pause(){
 	playing = false;
 	// Dbg_println("paused");
 }
 
-void AudioTrack::_play(){
+void AudioTrack::play(){
 	long c;
 	if (sampleBuffInc_fp5 > 0)  {
 		c = playbackStart;
@@ -191,10 +191,10 @@ void AudioTrack::setLoops(int l){
 	loops = max(-1, l);
 }
 
-inline bool AudioTrack::_doneLooping(){
-	if (loops < 0) return false;
-	if (loopCount > 1) return false;
-	return true;
+inline bool AudioTrack::isLooping(){
+	if (loops < 0) return true;
+	if (loopCount > 1) return true;
+	return false;
 }
 
 void AudioTrack::setSpeed(float speed){
@@ -225,7 +225,7 @@ void AudioTrack::advance(){
 	// sampleBuffInc_fp5 may be negative:
 	if (sampleBuffInc_fp5 > 0)
 		while (sampleBuffCursor_fp5 >= playbackEnd_fp5){
-			if (_doneLooping()) {
+			if (! isLooping()) {
 				playing = false;
 				sampleBuffCursor_fp5 = playbackStart_fp5;
 				//Dbg_println("played.");
@@ -237,7 +237,7 @@ void AudioTrack::advance(){
 
 	if (sampleBuffInc_fp5 < 0)
 		while (sampleBuffCursor_fp5 <= playbackStart_fp5){
-			if (_doneLooping()) {
+			if (! isLooping()) {
 				playing = false;
 				sampleBuffCursor_fp5 = playbackEnd_fp5;
 				//Dbg_println(".deyalp");
@@ -263,11 +263,11 @@ uint32_t AudioTrack::fillFromRawFile(fs::FS &fs, String filename){
 
 
 ////////////////////////////////////////
-// RP2040Audio object manages all the audio objects in the system,
+// Picomix object manages all the audio objects in the system,
 // and defines the ISR that pumps AudioTracks into txBufs.
 
 // This gets called once at startup to set up PWM
-void RP2040Audio::init(unsigned char ring) {
+void Picomix::init(unsigned char ring) {
 
 	/////////////////////////
 	// set up digital limiter (used by ISR)
@@ -288,7 +288,7 @@ void RP2040Audio::init(unsigned char ring) {
 	irq_set_exclusive_handler(PWMSTREAMER_DMA_INTERRUPT, ISR_play);
 }
 
-AudioTrack *RP2040Audio::addTrack(AudioTrack *t){
+AudioTrack *Picomix::addTrack(AudioTrack *t){
 	for (int i=0;i<MAX_TRACKS;i++){
 		if (trk[i] == NULL){
 			trk[i] = t;
@@ -298,7 +298,7 @@ AudioTrack *RP2040Audio::addTrack(AudioTrack *t){
 	return NULL;
 }
 
-AudioTrack *RP2040Audio::addTrack(uint8_t channels, long int sampleLength){
+AudioTrack *Picomix::addTrack(uint8_t channels, long int sampleLength){
 	for (int i=0;i<MAX_TRACKS;i++){
 		if (trk[i] == NULL){
 			trk[i] = new AudioTrack(channels, sampleLength);
@@ -308,17 +308,17 @@ AudioTrack *RP2040Audio::addTrack(uint8_t channels, long int sampleLength){
 	return NULL;
 }
 
-void RP2040Audio::start(){
+void Picomix::start(){
 	enableISR(true);
-	pwm._start();
+	pwm.start();
 }
 
-void RP2040Audio::stop(){
-	pwm._stop();
+void Picomix::stop(){
+	pwm.stop();
 	enableISR(false);
 }
 
-void RP2040Audio::enableISR(bool on){
+void Picomix::enableISR(bool on){
 	if (on) {
 		irq_set_enabled(PWMSTREAMER_DMA_INTERRUPT, true);
 	} else {
@@ -332,7 +332,7 @@ void RP2040Audio::enableISR(bool on){
 // DMA channel, even as the other DMA continues
 // to pump the other buffer's samples through the PWM.
 //
-void __not_in_flash_func(RP2040Audio::ISR_play)() {
+void __not_in_flash_func(Picomix::ISR_play)() {
 	static auto &my = onlyInstance();
 	AudioBuffer *idleTxBuf;
 	int idleSide;
