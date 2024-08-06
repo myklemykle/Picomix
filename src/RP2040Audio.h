@@ -192,7 +192,7 @@ private:
 };
 
 // How many tracks do we think we can mix?
-#define MAX_TRACKS 16
+#define MAX_TRACKS 24
 
 class RP2040Audio {
 
