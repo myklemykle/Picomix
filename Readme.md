@@ -22,7 +22,7 @@ This library currently requires [the arduino-pico core by Earl Philhower](https:
 It is not currently ported to other cores, to other MCUs than the RP2040,
 or to other environments than Arduino.
 
-# NOTICE: PWM AUDIO IS CHEAP AND DIRTY!
+# NOTICE: PWM AUDIO IS CHEAP AND DIRTY
 Due to the nature of PWM audio, the signals produced on the output pins
 contain huge amounts of supersonic noise that must be filtered out,
 or else it can cause all kinds of downstream audio problems
@@ -36,7 +36,7 @@ and will transmit whatever audible noise is present on that bus, which is often 
 
 This library allows you to adjust the tradeoffs between bit-depth and sample rate.
 Higher bit depth gives lower sample rates, which in turn generates more HF noise.
-When using a simple single-pole RC hipass output filter and running at 133mhz clock rate, 
+When using a simple single-pole RC lowpass output filter and running at 133mhz clock rate, 
 10 or 11 bit resolution can produce a decent-sounding signal with a manageable amount of noise.
 
 # Roadmap
@@ -54,8 +54,45 @@ Missing features that you or I might someday implement include:
 
 ~~~cpp
 
-// Coming soon ...
+#include "Picomix.h"
+#include "LittleFS.h" // or some other file system supported by arduino-pico
+ 
+auto &audio = PicoMix::onlyInstance();
+const AUDIO_PIN 23;  // or some other GPIO pin
 
+void setup(){
+
+  audio.init(AUDIO_PIN);
+  audio.start();
+
+  LittleFS.begin();
+
+  // Load a raw audio file (mono, 16-bit signed integer samples) into a track:
+  auto track0 = audio.addTrack(LittleFS, "blorp.raw")
+    ->setLoops(1000) // tell it to loop one thousand times
+    ->setLevel(0.5)  // volume level
+    ->play();
+  // Now track0 == audio.trk[0]
+
+  // Create another track with some sine waves:
+  auto track1 = audio.addTrack(1, 4410) // Allocate space for 0.1 seconds of mono samples at (approximately) 44.1khz
+    ->setLoops(LOOPFOREVER)   // Loop until stopped
+    ->play()
+    ->buf->fillWithSine(44);  // 1/10th second of (approximately) 440hz (when track speed == 1.0)
+  // Now track1 == audio.trk[1]
+
+}
+
+void loop(){
+  // You can adjust playback speeds on the fly
+  audio.trk[0]->setSpeed((random(0,20) - 10) / 5.0);
+
+  delay(1000);
+
+  audio.trk[1]->setSpeed((random(0,10)) / 5.0);
+
+  delay(1000);
+}
 ~~~
 
 # Open Source
