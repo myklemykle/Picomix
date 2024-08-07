@@ -31,7 +31,7 @@ I will not be held responsible for your loss of gear or hearing.
 Chapter 3.4 of the RPi Foundation's excellent document ["Hardware Design with RP2040"](https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf)
 describes a good filter circuit and other strategies for addressing this.
 
-Furthermore, PWM audio signals are powered by the MCU's main power bus,
+Furthermore, PWM audio signals are powered by the MCU's main power bus
 and will transmit whatever audible noise is present on that bus, which is often quite a lot.
 
 This library allows you to adjust the tradeoffs between bit-depth and sample rate.
