@@ -216,6 +216,7 @@ private:
 // It handles play/pause/seek (with wraparound) and looping.
 // playbackStart & playbackLen allow trimming to a subset of the sample.
 //
+#define LOOPFOREVER -1
 struct AudioTrack {
 	AudioBuffer *buf;
 	bool internalBuffer = false;
@@ -270,7 +271,7 @@ struct AudioTrack {
 	uint32_t fillFromRawFile(fs::FS &fs, String filename);
 
 private:
-	int loops = -1;
+	int loops = 0;
 	int loopCount = 0;
 
 };
