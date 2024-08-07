@@ -1,17 +1,13 @@
-// TODO: license/intro
+// Picomix -- multitrack PWM audio contraption for RP2040 by Mykle Hansen
+// This project is Open Source!
+// License: https://creativecommons.org/licenses/by-sa/4.0/
 
-
-#define SDEBUG
-#include "dbg_macros.h"
-
-//TODO: ifndef ?
-#include "Arduino.h" // for Serial
+#include "Picomix.h"
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
-#include "Picomix.h"
 
 #define iTWICE (i=0;i<2;i++)
 
@@ -44,8 +40,9 @@ void PWMStreamer::setup_dma_channels(){
 	}
 
 	// Setup a DMA timer to feed samples to PWM at an adjustable rate:
-	// TODO: check if it's been claimed already?
-	dmaTimer = dma_claim_unused_timer(true /* required */);
+	if (dmaTimer == -1)
+		dmaTimer = dma_claim_unused_timer(true /* required */);
+
 	dma_timer_set_fraction(dmaTimer, PWM_DMA_TIMER_NUM, PWM_DMA_TIMER_DEM);  // play back at (nearly) 44.1khz
 
 	// get some DMA channels:
@@ -76,7 +73,7 @@ void PWMStreamer::setup_dma_channels(){
 			(void*)(PWM_BASE + PWM_CH0_CC_OFFSET + (0x14 * pwmSlice)),  // write to pwm channel (pwm structures are 0x14 bytes wide)
 			tBufDataPtr[i],
 			TRANSFER_BUFF_SAMPLES / 4,         // transfer count: 2 samples (32 bits) per transfer, and we're only transferring half of the buffer.
-																				 // TODO: deal with odd numbers here
+																				 // TODO: deal with non-even-sized tx buffers
 			false                              // Don't start immediately
 		);
 #if (PWMSTREAMER_DMA_INTERRUPT == DMA_IRQ_1)
@@ -166,12 +163,13 @@ inline int PWMStreamer::resetIRQ(){
 ///  AudioTrack
 //////////////////////////////////////////////////
 
-void AudioTrack::pause(){
+AudioTrack *AudioTrack::pause(){
 	playing = false;
 	// Dbg_println("paused");
+	return this;
 }
 
-void AudioTrack::play(){
+AudioTrack *AudioTrack::play(){
 	long c;
 	if (sampleBuffInc_fp5 > 0)  {
 		c = playbackStart;
@@ -183,12 +181,14 @@ void AudioTrack::play(){
 	playing = true;
 	loopCount = max(1, loops);
 	// Dbg_println("playing");
+	return this;
 }
 
 // setLoops(-1) to loop forever when play() is called;
 // setLoops(n) to loop N times before stopping
-void AudioTrack::setLoops(int l){
+AudioTrack *AudioTrack::setLoops(int l){
 	loops = max(-1, l);
+	return this;
 }
 
 inline bool AudioTrack::isLooping(){
@@ -197,12 +197,13 @@ inline bool AudioTrack::isLooping(){
 	return false;
 }
 
-void AudioTrack::setSpeed(float speed){
-	if (speed == 0) // no. do not do this.
-		return;
+AudioTrack *AudioTrack::setSpeed(float speed){
+	if (speed == 0) // no. do not do this. 
+		return this;
 
 	sampleBuffInc_fp5 = int(inttofp5(speed));
 	// Dbg_printf("rate = %f, inc = %d\n", speed, sampleBuffInc_fp5);
+	return this;
 }
 
 float AudioTrack::getSpeed(){
@@ -212,8 +213,9 @@ float AudioTrack::getSpeed(){
 }
 
 // expecting a value between 0 and 1, or higher for trouble ...
-void AudioTrack::setLevel(float level){
+AudioTrack *AudioTrack::setLevel(float level){
 	iVolumeLevel = max(0, level * WAV_PWM_RANGE);
+	return this;
 }
 
 void AudioTrack::advance(){
@@ -248,18 +250,26 @@ void AudioTrack::advance(){
 }
 
 uint32_t AudioTrack::fillFromRawStream(Stream &f){
+	bool p = playing;
+	if (p)
+		pause();
 	playbackLen = buf->fillFromRawStream(f);
 	playbackStart = buf->sampleStart; // probably 0
+	if (p)
+		play();
 	return playbackLen;
 }
 
 uint32_t AudioTrack::fillFromRawFile(fs::FS &fs, String filename){
+	bool p = playing;
+	if (p)
+		pause();
 	playbackLen = buf->fillFromRawFile(fs, filename);
 	playbackStart = buf->sampleStart; // probably 0
+	if (p)
+		play();
 	return playbackLen;
 }
-
-
 
 
 ////////////////////////////////////////
@@ -306,6 +316,21 @@ AudioTrack *Picomix::addTrack(uint8_t channels, long int sampleLength){
 		}
 	}
 	return NULL;
+}
+
+AudioTrack *Picomix::addTrack(fs::FS &fs, String filename){
+	File f = fs.open(filename, "r");
+  if (!f) {
+    Dbg_println("file open failed");
+		return NULL;
+  } else {
+    Dbg_printf("%s: %d bytes\n", filename, f.size());
+  }
+	// presuming mono
+	AudioTrack *t = addTrack(1, f.size() / 2);
+	t->fillFromRawStream(f);
+	f.close();
+	return t;
 }
 
 void Picomix::start(){

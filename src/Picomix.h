@@ -1,6 +1,7 @@
 #ifndef __PICOMIX_H
 #define __PICOMIX_H
 
+// Picomix -- multitrack PWM audio contraption for RP2040 by Mykle Hansen
 // This project is Open Source!
 // License: https://creativecommons.org/licenses/by-sa/4.0/
 
@@ -13,8 +14,9 @@
 //
 // SDEBUG: send debug statements to serial port?
 // Use Dbg_print(), Dbg_println(), Dbg_printf(), etc., to send debug output.
-// If SDEBUG is defined, output is sent to Serial.
+// If SDEBUG is defined, output is sent to the Arduino Serial object.
 // If SDEBUG is undefined, all debug code is stripped from the binary.
+// You may also redefine those macros to send debugging elsewhere.
 #define SDEBUG
 //
 // WAV_PWM_BITS: PWM sample resolution.
@@ -54,6 +56,8 @@
 // A larger buffer means fewer interrupts, perhaps more efficient.
 // OTOH, when this was set to 80 (at 133mhz), the resulting interrrupt frequency
 // injected audible noise into a circuit. Lower values keep it supersonic.
+// (WARNING: In this release, TRANSFER_WINDOW_XFERS must be an even number 
+// or else samples will be dropped. See TODO ...)
 #define TRANSFER_WINDOW_XFERS 40
 //
 //
@@ -143,12 +147,15 @@ struct AudioBuffer {
 		channels(c), 
 		samples(s), 
 		data(new int16_t[c * s])
-		{
-		}
+		{ };
+
+	~AudioBuffer(){
+		delete[] data;
+	};
 
 	inline uint32_t byteLen(){
 		return channels * samples * resolution;
-	}
+	};
 
 	uint32_t sampleStart = 0;
 	uint32_t sampleLen;
@@ -197,7 +204,7 @@ public:
 	
 private:
 	pwm_config pCfg, tCfg;
-	int dmaTimer;
+	int dmaTimer = -1;
 
 	void setup_dma_channels();
 	void setup_audio_pwm_slice(unsigned char pin);
@@ -211,6 +218,7 @@ private:
 //
 struct AudioTrack {
 	AudioBuffer *buf;
+	bool internalBuffer = false;
 
 	// AudioTrack can be instantiated with an existing buffer like so:
 	AudioTrack(AudioBuffer &b):
@@ -231,8 +239,14 @@ struct AudioTrack {
 	// Or it can instantiate its own new buffer like so:
 	AudioTrack(uint8_t channels, long int sampleLen):
 		buf(new AudioBuffer(channels, sampleLen)),
-		playbackLen(sampleLen)
+		playbackLen(sampleLen),
+		internalBuffer(true)
 		{};
+
+	~AudioTrack(){
+		if (internalBuffer)
+			delete buf;
+	}
 
 	volatile uint32_t iVolumeLevel; // 0 - WAV_PWM_RANGE, or higher for clipping
 	volatile fp5_t sampleBuffCursor_fp5 =	inttofp5(0);
@@ -241,12 +255,12 @@ struct AudioTrack {
 	uint32_t playbackStart = 0; 
 	uint32_t playbackLen; 
 
-  void play();
-	void pause(); 
-	void setLooping(bool l);
-	void setLevel(float level);
-	void setLoops(int l);
-	void setSpeed(float speed);
+	// These all return a pointer to the object, so they can be chained:
+  AudioTrack *play();
+	AudioTrack *pause(); 
+	AudioTrack *setLevel(float level);
+	AudioTrack *setLoops(int l);
+	AudioTrack *setSpeed(float speed);
 
 	float getSpeed();
 	bool isLooping();
@@ -304,10 +318,13 @@ public:
 
 	AudioTrack *addTrack(uint8_t channels, long int sampleLen);
 	AudioTrack *addTrack(AudioTrack *t);
+	AudioTrack *addTrack(fs::FS &fs, String filename);
 
+	// void freeTrack(AudioTrack *t);
 private:
 	// The master sample mixer:
   static void ISR_play();
 };
+
 
 #endif  // __PICOMIX_H

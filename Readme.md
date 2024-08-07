@@ -42,7 +42,7 @@ When using a simple single-pole RC hipass output filter and running at 133mhz cl
 # Roadmap
 
 Missing features that you or I might someday implement include:
-  * Stereo. In this release the left and right PWM pins play the same mono signal.
+  * Stereo. In this release the left and right PWM pins play the same mono signal, and raw audio files are assumed to be mono.
   * Multiple stereo outputs
   * PDM output (lower noise, more cycles)
   * Output to any specific codec
