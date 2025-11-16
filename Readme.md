@@ -57,8 +57,8 @@ Missing features that you or I might someday implement include:
 #include "Picomix.h"
 #include "LittleFS.h" // or some other file system supported by arduino-pico
  
-auto &audio = PicoMix::onlyInstance();
-const AUDIO_PIN 23;  // or some other GPIO pin
+auto &audio = Picomix::onlyInstance();
+#define AUDIO_PIN 23  // or some other GPIO pin
 
 void setup(){
 
@@ -68,17 +68,17 @@ void setup(){
   LittleFS.begin();
 
   // Load a raw audio file (mono, 16-bit signed integer samples) into a track:
-  auto track0 = audio.addTrack(LittleFS, "blorp.raw")
+  auto *track0 = audio.addTrack(LittleFS, "blorp.raw")
     ->setLoops(1000) // tell it to loop one thousand times
     ->setLevel(0.5)  // volume level
     ->play();
   // Now track0 == audio.trk[0]
 
   // Create another track with some sine waves:
-  auto track1 = audio.addTrack(1, 4410) // Allocate space for 0.1 seconds of mono samples at (approximately) 44.1khz
+  auto *track1 = audio.addTrack(1, 4410) // Allocate space for 0.1 seconds of mono samples at (approximately) 44.1khz
     ->setLoops(LOOPFOREVER)   // Loop until stopped
-    ->play()
-    ->buf->fillWithSine(44);  // 1/10th second of (approximately) 440hz (when track speed == 1.0)
+    ->play();
+    track1->buf->fillWithSine(44);  // 1/10th second of (approximately) 440hz (when track speed == 1.0)
   // Now track1 == audio.trk[1]
 
 }
@@ -93,6 +93,7 @@ void loop(){
 
   delay(1000);
 }
+
 ~~~
 
 # Open Source
