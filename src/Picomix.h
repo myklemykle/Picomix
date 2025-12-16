@@ -64,8 +64,8 @@
 // PWMSTREAMER_DMA_INTERRUPT:
 // RP2040 offers two IRQs that the DMA system may use to trigger an ISR.
 // You can select either of them here, just in case some other library wants the other one.
-#define PWMSTREAMER_DMA_INTERRUPT DMA_IRQ_0 
-//#define PWMSTREAMER_DMA_INTERRUPT DMA_IRQ_1
+//#define PWMSTREAMER_DMA_INTERRUPT DMA_IRQ_0  // this worked up until RPI SDK 2.0.0
+#define PWMSTREAMER_DMA_INTERRUPT DMA_IRQ_1		// this works since then.
 //
 //
 // MAX_TRACKS: How many tracks will the ISR try to mix?
