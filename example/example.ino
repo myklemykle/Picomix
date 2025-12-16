@@ -6,7 +6,7 @@
 // You also need to load the example audio file onto your Pico's flash filesystem.
 // This example uses LittleFS for the filesystem. 
 // It's supported by the Arduino-Pico core by Earle Philhower.
-// The easy way to use it is to install his helper tool into Arduino:
+// The easy way to use LittleFS with Arduino is to install this helper tool:
 //   https://arduino-pico.readthedocs.io/en/latest/fs.html#uploading-files-to-the-littlefs-file-system-on-ide-2-x-rp2040-and-rp2350
 // Once that's installed, the Arduino Command Pallete will include two LittleFS tools,
 // one to build the filesystem image and another to install it.
